@@ -311,9 +311,25 @@ header h1 span { color: var(--blue); }
 .seg-draw { background: var(--draw); }
 .seg-away { background: var(--orange); }
 
-.card-bottom { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
-.draw-lbl { font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.venue-lbl { font-size: 10px; color: var(--muted); text-align: right; line-height: 1.35; }
+.prob-labels {
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0 7px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.prob-label-home { color: var(--blue); }
+.prob-label-draw { color: var(--draw); text-align: center; }
+.prob-label-away { color: var(--orange); text-align: right; }
+.no-odds-msg {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+  padding: 8px 0 6px;
+}
+.venue-row { font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
 
 /* ── Group standings sidebar ── */
 .gs-panel {
@@ -426,11 +442,11 @@ def color_cls(home_prob, away_prob) -> str:
     if home_prob is None:
         return "gray"
     fav = max(home_prob, away_prob)
-    if fav < 0.55:
-        return "green"   # tight match
-    if fav < 0.72:
+    if fav < 0.65:
+        return "green"   # competitive
+    if fav < 0.80:
         return "amber"   # clear favorite
-    return "red"         # heavy mismatch
+    return "red"         # heavy mismatch (>80%)
 
 
 def flag(team: str) -> str:
@@ -491,14 +507,24 @@ def build_html(odds: dict, fetched_at) -> str:
             ap = o["away_prob"] if o else None
             cls = color_cls(hp, ap)
 
-            home_w = int(hp * 100) if hp is not None else 0
-            draw_w = int(dp * 100) if dp is not None else 0
-            away_w = 100 - home_w - draw_w if hp is not None else 0
-
-            hp_cls = "home-col" if hp is not None else "na"
-            ap_cls = "away-col" if ap is not None else "na"
-
-            draw_text = f"Draw {fmt_pct(dp)}" if dp is not None else "No odds"
+            if hp is not None:
+                home_w = int(hp * 100)
+                draw_w = int(dp * 100)
+                away_w = 100 - home_w - draw_w
+                prob_html = (
+                    f'<div class="seg-bar-wrap">'
+                    f'<div class="seg-home" style="width:{home_w}%"></div>'
+                    f'<div class="seg-draw" style="width:{draw_w}%"></div>'
+                    f'<div class="seg-away" style="width:{away_w}%"></div>'
+                    f'</div>'
+                    f'<div class="prob-labels">'
+                    f'<span class="prob-label-home">Home&nbsp;{fmt_pct(hp)}</span>'
+                    f'<span class="prob-label-draw">Draw&nbsp;{fmt_pct(dp)}</span>'
+                    f'<span class="prob-label-away">Away&nbsp;{fmt_pct(ap)}</span>'
+                    f'</div>'
+                )
+            else:
+                prob_html = '<div class="no-odds-msg">Odds not yet available</div>'
 
             sched.append(
                 f'<div class="game-card {cls}">'
@@ -510,24 +536,15 @@ def build_html(odds: dict, fetched_at) -> str:
                 f'<div class="team-row">'
                 f'<span class="team-flag">{flag(g["home"])}</span>'
                 f'<span class="team-name">{esc(g["home"])}</span>'
-                f'<span class="team-prob {hp_cls}">{fmt_pct(hp)}</span>'
                 f'</div>'
                 f'<div class="vs-line">vs</div>'
                 f'<div class="team-row">'
                 f'<span class="team-flag">{flag(g["away"])}</span>'
                 f'<span class="team-name">{esc(g["away"])}</span>'
-                f'<span class="team-prob {ap_cls}">{fmt_pct(ap)}</span>'
                 f'</div>'
                 f'</div>'
-                f'<div class="seg-bar-wrap">'
-                f'<div class="seg-home" style="width:{home_w}%"></div>'
-                f'<div class="seg-draw" style="width:{draw_w}%"></div>'
-                f'<div class="seg-away" style="width:{away_w}%"></div>'
-                f'</div>'
-                f'<div class="card-bottom">'
-                f'<span class="draw-lbl">{esc(draw_text)}</span>'
-                f'<span class="venue-lbl">{esc(g["venue"])}</span>'
-                f'</div>'
+                + prob_html +
+                f'<div class="venue-row">{esc(g["venue"])}</div>'
                 f'</div>'
             )
         sched.append('</div></div>')
