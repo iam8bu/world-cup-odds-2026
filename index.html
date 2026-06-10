@@ -224,6 +224,33 @@ header h1 span { color: var(--blue); }
 .gs-pct { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .gs-no-odds { font-size: 10px; color: var(--muted); text-align: right; }
 
+/* ── Completed result cards ── */
+.final-badge {
+  font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px;
+  letter-spacing: .5px; background: var(--surface2); color: var(--muted);
+  border: 1px solid var(--border);
+}
+.upset-badge {
+  font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 3px;
+  letter-spacing: .5px; background: var(--amber-dim); color: var(--amber);
+  border: 1px solid var(--amber-bdr);
+}
+.team-score {
+  margin-left: auto; font-size: 16px; font-weight: 800;
+  font-variant-numeric: tabular-nums; color: var(--muted);
+}
+.team-row.winner .team-name { font-weight: 700; color: #fff; }
+.team-row.winner .team-score { color: var(--green); }
+.team-row.loser  { opacity: .65; }
+.odds-hist {
+  margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border);
+  opacity: .42;
+}
+.odds-hist-label {
+  font-size: 9px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 5px;
+}
+
 /* ── Footer ── */
 footer {
   text-align: center; padding: 18px;
@@ -263,6 +290,7 @@ footer a { color: var(--blue); text-decoration: none; }
 <span style="color:#3b82f6">&#9632;</span><span>Home win</span>
 <span style="color:#6b7280">&#9632;</span><span>Draw</span>
 <span style="color:#f97316">&#9632;</span><span>Away win</span>
+<span style="opacity:.5">&#9632;</span><span style="opacity:.5">Faded bar = pre-game odds</span>
 </div>
 <div class="main-layout">
 <div class="schedule-col">

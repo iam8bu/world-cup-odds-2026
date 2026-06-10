@@ -117,6 +117,16 @@ def init_db(conn: sqlite3.Connection) -> None:
             fetched_at  TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS match_results (
+            event_id    TEXT PRIMARY KEY,
+            home_team   TEXT NOT NULL,
+            away_team   TEXT NOT NULL,
+            home_score  INTEGER NOT NULL,
+            away_score  INTEGER NOT NULL,
+            fetched_at  TEXT NOT NULL
+        )
+    """)
     conn.commit()
 
 
@@ -209,8 +219,74 @@ def fetch_and_store(api_key: str, db_path: str = "odds.db") -> None:
         conn.close()
 
 
+def fetch_and_store_scores(api_key: str, db_path: str = "odds.db") -> None:
+    url = "https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/scores"
+    params = {
+        "apiKey": api_key,
+        "daysFrom": 3,
+    }
+
+    resp = requests.get(url, params=params, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+
+    remaining = resp.headers.get("x-requests-remaining", "?")
+    used = resp.headers.get("x-requests-used", "?")
+    print(f"Scores API quota — used: {used}, remaining: {remaining}")
+
+    completed = [e for e in data if e.get("completed") and e.get("scores")]
+    if not completed:
+        print("No completed matches found.")
+        return
+
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    conn = sqlite3.connect(db_path)
+    try:
+        init_db(conn)
+        count = 0
+        for event in completed:
+            home_raw = event["home_team"]
+            away_raw = event["away_team"]
+            home = normalize(home_raw)
+            away = normalize(away_raw)
+            event_id = event["id"]
+
+            score_map = {
+                s["name"]: s["score"]
+                for s in event["scores"]
+                if s.get("score") is not None
+            }
+            home_score_raw = score_map.get(home_raw)
+            away_score_raw = score_map.get(away_raw)
+            if home_score_raw is None or away_score_raw is None:
+                print(f"  Skipping {home} vs {away} — score data incomplete")
+                continue
+
+            try:
+                home_score = int(home_score_raw)
+                away_score = int(away_score_raw)
+            except (ValueError, TypeError):
+                print(f"  Skipping {home} vs {away} — non-integer score: {home_score_raw}/{away_score_raw}")
+                continue
+
+            conn.execute(
+                """INSERT OR REPLACE INTO match_results
+                   (event_id, home_team, away_team, home_score, away_score, fetched_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (event_id, home, away, home_score, away_score, fetched_at),
+            )
+            count += 1
+            print(f"  Result: {home:<22} {home_score}–{away_score}  {away}")
+
+        conn.commit()
+        print(f"Stored {count} completed result(s).")
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     key = os.environ.get("ODDS_API_KEY")
     if not key:
         raise SystemExit("ERROR: ODDS_API_KEY environment variable not set.")
     fetch_and_store(key)
+    fetch_and_store_scores(key)

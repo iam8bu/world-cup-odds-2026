@@ -375,6 +375,33 @@ header h1 span { color: var(--blue); }
 .gs-pct { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .gs-no-odds { font-size: 10px; color: var(--muted); text-align: right; }
 
+/* ── Completed result cards ── */
+.final-badge {
+  font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px;
+  letter-spacing: .5px; background: var(--surface2); color: var(--muted);
+  border: 1px solid var(--border);
+}
+.upset-badge {
+  font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 3px;
+  letter-spacing: .5px; background: var(--amber-dim); color: var(--amber);
+  border: 1px solid var(--amber-bdr);
+}
+.team-score {
+  margin-left: auto; font-size: 16px; font-weight: 800;
+  font-variant-numeric: tabular-nums; color: var(--muted);
+}
+.team-row.winner .team-name { font-weight: 700; color: #fff; }
+.team-row.winner .team-score { color: var(--green); }
+.team-row.loser  { opacity: .65; }
+.odds-hist {
+  margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border);
+  opacity: .42;
+}
+.odds-hist-label {
+  font-size: 9px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 5px;
+}
+
 /* ── Footer ── */
 footer {
   text-align: center; padding: 18px;
@@ -440,6 +467,25 @@ def get_odds(db_path: str) -> tuple:
         conn.close()
 
 
+def get_results(db_path: str) -> dict:
+    """Return {(home, away): {"home_score": int, "away_score": int}}."""
+    if not os.path.exists(db_path):
+        return {}
+    conn = sqlite3.connect(db_path)
+    try:
+        tbl = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='match_results'"
+        ).fetchone()
+        if not tbl:
+            return {}
+        rows = conn.execute(
+            "SELECT home_team, away_team, home_score, away_score FROM match_results"
+        ).fetchall()
+        return {(h, a): {"home_score": hs, "away_score": aws} for h, a, hs, aws in rows}
+    finally:
+        conn.close()
+
+
 def fmt_pct(p, d: int = 1) -> str:
     return "—" if p is None else f"{p * 100:.{d}f}%"
 
@@ -488,7 +534,9 @@ def team_expected_wins(team: str, odds: dict):
 # HTML builder
 # ---------------------------------------------------------------------------
 
-def build_html(odds: dict, fetched_at) -> str:
+def build_html(odds: dict, fetched_at, results: dict = None) -> str:
+    if results is None:
+        results = {}
     # ---- schedule ----
     date_games: dict = {}
     for g in SCHEDULE:
@@ -552,54 +600,131 @@ def build_html(odds: dict, fetched_at) -> str:
             ap = o["away_prob"] if o else None
             cls = color_cls(hp, dp, ap)
             comp_label = COMP_LABELS.get(cls, "")
-            comp_badge = (
-                f'<span class="comp-badge {cls}">{comp_label}</span>'
-                if comp_label else ""
-            )
 
-            if hp is not None:
-                home_w = int(hp * 100)
-                draw_w = int(dp * 100)
-                away_w = 100 - home_w - draw_w
-                prob_html = (
-                    f'<div class="seg-bar-wrap">'
-                    f'<div class="seg-home" style="width:{home_w}%"></div>'
-                    f'<div class="seg-draw" style="width:{draw_w}%"></div>'
-                    f'<div class="seg-away" style="width:{away_w}%"></div>'
+            r = results.get((g["home"], g["away"]))
+
+            if r:
+                # ── completed game ──────────────────────────────────────────
+                hs = r["home_score"]
+                aws = r["away_score"]
+
+                if hs > aws:
+                    home_cls, away_cls = "winner", "loser"
+                    winning_prob = hp
+                    losing_prob  = ap
+                elif aws > hs:
+                    home_cls, away_cls = "loser", "winner"
+                    winning_prob = ap
+                    losing_prob  = hp
+                else:
+                    home_cls = away_cls = ""
+                    winning_prob = dp
+                    losing_prob  = max(hp, ap) if hp is not None else None
+
+                is_upset = (
+                    winning_prob is not None and
+                    losing_prob  is not None and
+                    winning_prob < losing_prob
+                )
+                upset_badge = '<span class="upset-badge">UPSET</span>' if is_upset else ""
+
+                if hp is not None:
+                    home_w = int(hp * 100)
+                    draw_w = int(dp * 100)
+                    away_w = 100 - home_w - draw_w
+                    hist_html = (
+                        f'<div class="odds-hist">'
+                        f'<div class="odds-hist-label">Pre-game odds</div>'
+                        f'<div class="seg-bar-wrap">'
+                        f'<div class="seg-home" style="width:{home_w}%"></div>'
+                        f'<div class="seg-draw" style="width:{draw_w}%"></div>'
+                        f'<div class="seg-away" style="width:{away_w}%"></div>'
+                        f'</div>'
+                        f'<div class="prob-labels">'
+                        f'<span class="prob-label-home">Home&nbsp;{fmt_pct(hp)}</span>'
+                        f'<span class="prob-label-draw">Draw&nbsp;{fmt_pct(dp)}</span>'
+                        f'<span class="prob-label-away">Away&nbsp;{fmt_pct(ap)}</span>'
+                        f'</div></div>'
+                    )
+                else:
+                    hist_html = ""
+
+                sched.append(
+                    f'<div class="game-card {cls}">'
+                    f'<div class="card-top">'
+                    f'<span class="grp-badge">GRP {esc(g["grp"])}</span>'
+                    + upset_badge +
+                    f'<span class="final-badge">FINAL</span>'
                     f'</div>'
-                    f'<div class="prob-labels">'
-                    f'<span class="prob-label-home">Home&nbsp;{fmt_pct(hp)}</span>'
-                    f'<span class="prob-label-draw">Draw&nbsp;{fmt_pct(dp)}</span>'
-                    f'<span class="prob-label-away">Away&nbsp;{fmt_pct(ap)}</span>'
+                    f'<div class="matchup">'
+                    f'<div class="team-row {home_cls}">'
+                    f'<span class="color-dot home-dot"></span>'
+                    f'<span class="team-flag">{flag(g["home"])}</span>'
+                    f'<span class="team-name">{esc(g["home"])}</span>'
+                    f'<span class="team-score">{hs}</span>'
+                    f'</div>'
+                    f'<div class="vs-line">vs</div>'
+                    f'<div class="team-row {away_cls}">'
+                    f'<span class="color-dot away-dot"></span>'
+                    f'<span class="team-flag">{flag(g["away"])}</span>'
+                    f'<span class="team-name">{esc(g["away"])}</span>'
+                    f'<span class="team-score">{aws}</span>'
+                    f'</div>'
+                    f'</div>'
+                    + hist_html +
+                    f'<div class="venue-row">{esc(g["venue"])}</div>'
                     f'</div>'
                 )
             else:
-                prob_html = '<div class="no-odds-msg">Odds not yet available</div>'
+                # ── upcoming / no result yet ─────────────────────────────────
+                comp_badge = (
+                    f'<span class="comp-badge {cls}">{comp_label}</span>'
+                    if comp_label else ""
+                )
 
-            sched.append(
-                f'<div class="game-card {cls}">'
-                f'<div class="card-top">'
-                f'<span class="grp-badge">GRP {esc(g["grp"])}</span>'
-                + comp_badge +
-                f'<span class="card-time">{esc(g["time"])}</span>'
-                f'</div>'
-                f'<div class="matchup">'
-                f'<div class="team-row">'
-                f'<span class="color-dot home-dot"></span>'
-                f'<span class="team-flag">{flag(g["home"])}</span>'
-                f'<span class="team-name">{esc(g["home"])}</span>'
-                f'</div>'
-                f'<div class="vs-line">vs</div>'
-                f'<div class="team-row">'
-                f'<span class="color-dot away-dot"></span>'
-                f'<span class="team-flag">{flag(g["away"])}</span>'
-                f'<span class="team-name">{esc(g["away"])}</span>'
-                f'</div>'
-                f'</div>'
-                + prob_html +
-                f'<div class="venue-row">{esc(g["venue"])}</div>'
-                f'</div>'
-            )
+                if hp is not None:
+                    home_w = int(hp * 100)
+                    draw_w = int(dp * 100)
+                    away_w = 100 - home_w - draw_w
+                    prob_html = (
+                        f'<div class="seg-bar-wrap">'
+                        f'<div class="seg-home" style="width:{home_w}%"></div>'
+                        f'<div class="seg-draw" style="width:{draw_w}%"></div>'
+                        f'<div class="seg-away" style="width:{away_w}%"></div>'
+                        f'</div>'
+                        f'<div class="prob-labels">'
+                        f'<span class="prob-label-home">Home&nbsp;{fmt_pct(hp)}</span>'
+                        f'<span class="prob-label-draw">Draw&nbsp;{fmt_pct(dp)}</span>'
+                        f'<span class="prob-label-away">Away&nbsp;{fmt_pct(ap)}</span>'
+                        f'</div>'
+                    )
+                else:
+                    prob_html = '<div class="no-odds-msg">Odds not yet available</div>'
+
+                sched.append(
+                    f'<div class="game-card {cls}">'
+                    f'<div class="card-top">'
+                    f'<span class="grp-badge">GRP {esc(g["grp"])}</span>'
+                    + comp_badge +
+                    f'<span class="card-time">{esc(g["time"])}</span>'
+                    f'</div>'
+                    f'<div class="matchup">'
+                    f'<div class="team-row">'
+                    f'<span class="color-dot home-dot"></span>'
+                    f'<span class="team-flag">{flag(g["home"])}</span>'
+                    f'<span class="team-name">{esc(g["home"])}</span>'
+                    f'</div>'
+                    f'<div class="vs-line">vs</div>'
+                    f'<div class="team-row">'
+                    f'<span class="color-dot away-dot"></span>'
+                    f'<span class="team-flag">{flag(g["away"])}</span>'
+                    f'<span class="team-name">{esc(g["away"])}</span>'
+                    f'</div>'
+                    f'</div>'
+                    + prob_html +
+                    f'<div class="venue-row">{esc(g["venue"])}</div>'
+                    f'</div>'
+                )
         sched.append('</div></div>')
 
     # ---- group standings HTML ----
@@ -655,6 +780,7 @@ def build_html(odds: dict, fetched_at) -> str:
         '<span style="color:#3b82f6">&#9632;</span><span>Home win</span>',
         '<span style="color:#6b7280">&#9632;</span><span>Draw</span>',
         '<span style="color:#f97316">&#9632;</span><span>Away win</span>',
+        '<span style="opacity:.5">&#9632;</span><span style="opacity:.5">Faded bar = pre-game odds</span>',
         "</div>",
         '<div class="main-layout">',
         '<div class="schedule-col">',
@@ -681,10 +807,11 @@ def build_html(odds: dict, fetched_at) -> str:
 
 def main() -> None:
     odds, fetched_at = get_odds(DB_PATH)
+    results = get_results(DB_PATH)
     if not odds:
         print("WARNING: No match odds in DB — generating skeleton dashboard.")
 
-    html = build_html(odds, fetched_at)
+    html = build_html(odds, fetched_at, results)
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         f.write(html)
 
