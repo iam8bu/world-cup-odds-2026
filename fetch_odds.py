@@ -4,8 +4,7 @@ import requests
 from datetime import datetime, timezone
 
 # ---------------------------------------------------------------------------
-# Team name normalization: map whatever The Odds API returns to the canonical
-# names used in the schedule.
+# Team name normalization
 # ---------------------------------------------------------------------------
 NAME_MAP = {
     # Group A
@@ -100,21 +99,22 @@ def normalize(name: str) -> str:
 
 
 def american_to_implied(odds: int) -> float:
-    """Convert American odds integer to implied probability (0–1)."""
     if odds >= 0:
         return 100 / (odds + 100)
-    else:
-        return abs(odds) / (abs(odds) + 100)
+    return abs(odds) / (abs(odds) + 100)
 
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS odds_snapshots (
+        CREATE TABLE IF NOT EXISTS match_odds (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            team        TEXT    NOT NULL,
-            odds_american INTEGER NOT NULL,
-            implied_prob  REAL  NOT NULL,
-            fetched_at  TEXT    NOT NULL
+            event_id    TEXT NOT NULL,
+            home_team   TEXT NOT NULL,
+            away_team   TEXT NOT NULL,
+            home_prob   REAL NOT NULL,
+            draw_prob   REAL NOT NULL,
+            away_prob   REAL NOT NULL,
+            fetched_at  TEXT NOT NULL
         )
     """)
     conn.commit()
@@ -125,7 +125,7 @@ def fetch_and_store(api_key: str, db_path: str = "odds.db") -> None:
     params = {
         "apiKey": api_key,
         "regions": "us",
-        "markets": "outrights",
+        "markets": "h2h",
         "oddsFormat": "american",
     }
 
@@ -137,46 +137,74 @@ def fetch_and_store(api_key: str, db_path: str = "odds.db") -> None:
     used = resp.headers.get("x-requests-used", "?")
     print(f"API quota — used: {used}, remaining: {remaining}")
 
-    # The outrights endpoint returns a list of events; for a tournament futures
-    # market there is typically one event whose outcomes are the teams.
-    team_odds: dict[str, int] = {}
-    for event in data:
-        for bookmaker in event.get("bookmakers", []):
-            for market in bookmaker.get("markets", []):
-                if market.get("key") != "outrights":
-                    continue
-                for outcome in market.get("outcomes", []):
-                    raw_name = outcome.get("name", "")
-                    canonical = normalize(raw_name)
-                    price = int(outcome["price"])
-                    # Keep the best (lowest) odds seen across bookmakers so
-                    # implied probs reflect the sharpest available line.
-                    if canonical not in team_odds or price < team_odds[canonical]:
-                        team_odds[canonical] = price
-
-    if not team_odds:
-        print("WARNING: no outright odds found in API response.")
+    if not data:
+        print("WARNING: API returned an empty list — no matches available yet.")
         return
 
     fetched_at = datetime.now(timezone.utc).isoformat()
+    rows = []
+
+    for event in data:
+        home_raw = event["home_team"]
+        away_raw = event["away_team"]
+        home = normalize(home_raw)
+        away = normalize(away_raw)
+        event_id = event["id"]
+
+        home_probs, draw_probs, away_probs = [], [], []
+
+        for bookmaker in event.get("bookmakers", []):
+            for market in bookmaker.get("markets", []):
+                if market.get("key") != "h2h":
+                    continue
+                outcome_map = {
+                    o["name"]: american_to_implied(o["price"])
+                    for o in market.get("outcomes", [])
+                }
+                hp = outcome_map.get(home_raw)
+                ap = outcome_map.get(away_raw)
+                dp = outcome_map.get("Draw", 0.0)
+
+                if hp is not None and ap is not None:
+                    home_probs.append(hp)
+                    away_probs.append(ap)
+                    draw_probs.append(dp)
+
+        if not home_probs:
+            print(f"  No h2h odds found for {home} vs {away} — skipping")
+            continue
+
+        # Average across bookmakers then normalize to remove the vig
+        home_avg = sum(home_probs) / len(home_probs)
+        away_avg = sum(away_probs) / len(away_probs)
+        draw_avg = sum(draw_probs) / len(draw_probs) if draw_probs else 0.0
+        total = home_avg + draw_avg + away_avg
+
+        home_norm = home_avg / total
+        draw_norm = draw_avg / total
+        away_norm = away_avg / total
+
+        rows.append((event_id, home, away, home_norm, draw_norm, away_norm, fetched_at))
+        print(
+            f"  {home:<22} vs {away:<22}  "
+            f"{home_norm*100:5.1f}% / {draw_norm*100:5.1f}% / {away_norm*100:5.1f}%"
+        )
+
+    if not rows:
+        print("WARNING: no h2h odds were processable — nothing written to DB.")
+        return
 
     conn = sqlite3.connect(db_path)
     try:
         init_db(conn)
-        rows = [
-            (team, odds, american_to_implied(odds), fetched_at)
-            for team, odds in sorted(team_odds.items())
-        ]
         conn.executemany(
-            "INSERT INTO odds_snapshots (team, odds_american, implied_prob, fetched_at) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO match_odds "
+            "(event_id, home_team, away_team, home_prob, draw_prob, away_prob, fetched_at) "
+            "VALUES (?,?,?,?,?,?,?)",
             rows,
         )
         conn.commit()
-        print(f"Stored {len(rows)} team odds at {fetched_at}")
-        for team, odds, prob, _ in sorted(rows, key=lambda r: -r[2]):
-            sign = "+" if odds >= 0 else ""
-            print(f"  {team:<30} {sign}{odds:>7}   {prob*100:5.2f}%")
+        print(f"\nStored odds for {len(rows)} matches at {fetched_at}")
     finally:
         conn.close()
 
