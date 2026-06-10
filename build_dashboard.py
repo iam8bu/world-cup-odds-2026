@@ -289,13 +289,6 @@ header h1 span { color: var(--blue); }
 .card-top {
   display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 9px;
 }
-.comp-badge {
-  font-size: 9px; font-weight: 600; padding: 2px 6px; border-radius: 3px;
-  letter-spacing: .3px; white-space: nowrap;
-}
-.comp-badge.green { background: var(--green-dim); color: var(--green); border: 1px solid var(--green-bdr); }
-.comp-badge.amber { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber-bdr); }
-.comp-badge.red   { background: var(--red-dim);   color: var(--red);   border: 1px solid var(--red-bdr);   }
 .grp-badge {
   background: var(--blue); color: #fff;
   font-size: 9px; font-weight: 700;
@@ -522,22 +515,6 @@ def fmt_pct(p, d: int = 1) -> str:
     return "—" if p is None else f"{p * 100:.{d}f}%"
 
 
-COMP_LABELS = {
-    "amber": "Moderate favorite",
-    "red":   "Heavy favorite",
-}
-
-def color_cls(home_prob, draw_prob, away_prob) -> str:
-    """Color by the highest single-outcome probability — used for comp badge."""
-    if home_prob is None:
-        return "gray"
-    peak = max(home_prob, draw_prob, away_prob)
-    if peak < 0.50:
-        return "green"
-    if peak < 0.70:
-        return "amber"
-    return "red"
-
 
 def watch_cls(w) -> str:
     """Card color class based on normalized watchability score."""
@@ -697,8 +674,6 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
             w = watchability.get(game_key)
             data_w = str(w) if w is not None else ""
             card_cls = watch_cls(w)
-            comp_cls = color_cls(hp, dp, ap)
-            comp_label = COMP_LABELS.get(comp_cls, "")
             is_fallback = game_key in title_fallback
             tp_h = title_probs.get(g["home"])
             tp_a = title_probs.get(g["away"])
@@ -804,11 +779,6 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
                 )
             else:
                 # ── upcoming / no result yet ─────────────────────────────────
-                comp_badge = (
-                    f'<span class="comp-badge {comp_cls}">{comp_label}</span>'
-                    if comp_label else ""
-                )
-
                 if hp is not None:
                     home_w = int(hp * 100)
                     draw_w = int(dp * 100)
@@ -841,7 +811,6 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
                     f'<div class="game-card {card_cls}" data-w="{data_w}" data-date="{esc(g["date"])}">'
                     f'<div class="card-top">'
                     f'<span class="grp-badge">GRP {esc(g["grp"])}</span>'
-                    + comp_badge +
                     f'<span class="date-chip">{esc(g["date"])}</span>'
                     f'<span class="card-time">{esc(g["time"])}</span>'
                     f'</div>'
