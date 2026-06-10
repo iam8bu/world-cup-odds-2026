@@ -452,19 +452,22 @@ def flag(team: str) -> str:
     return FLAGS.get(team, "🏳️")
 
 
-def team_avg_win(team: str, odds: dict):
-    """Average win probability for a team across all their group games with odds."""
-    probs = []
+def team_expected_wins(team: str, odds: dict):
+    """Sum of win probabilities across all group games with available odds (0–3 scale)."""
+    total = 0.0
+    found = 0
     for g in SCHEDULE:
         if g["home"] == team:
             o = odds.get((g["home"], g["away"]))
             if o:
-                probs.append(o["home_prob"])
+                total += o["home_prob"]
+                found += 1
         elif g["away"] == team:
             o = odds.get((g["home"], g["away"]))
             if o:
-                probs.append(o["away_prob"])
-    return sum(probs) / len(probs) if probs else None
+                total += o["away_prob"]
+                found += 1
+    return total if found > 0 else None
 
 
 # ---------------------------------------------------------------------------
@@ -558,14 +561,14 @@ def build_html(odds: dict, fetched_at) -> str:
     gs = []
     for grp, teams in GROUPS.items():
         ranked = sorted(
-            [(t, team_avg_win(t, odds)) for t in teams],
+            [(t, team_expected_wins(t, odds)) for t in teams],
             key=lambda x: -(x[1] if x[1] is not None else -1),
         )
         best = max((p for _, p in ranked if p is not None), default=None)
 
         gs.append(f'<div class="gs-group"><div class="gs-title">Group {esc(grp)}</div>')
-        for team, avg in ranked:
-            bar_w = int((avg / best) * 100) if avg is not None and best else 0
+        for team, xw in ranked:
+            bar_w = int((xw / best) * 100) if xw is not None and best else 0
             gs.append(
                 f'<div class="gs-row">'
                 f'<span class="gs-flag">{flag(team)}</span>'
@@ -574,7 +577,7 @@ def build_html(odds: dict, fetched_at) -> str:
                 f'<div class="gs-bar-track">'
                 f'<div class="gs-bar-fill" style="width:{bar_w}%"></div>'
                 f'</div></div>'
-                f'<span class="gs-pct">{fmt_pct(avg) if avg is not None else "—"}</span>'
+                f'<span class="gs-pct">{f"{xw:.2f}" if xw is not None else "—"}</span>'
                 f'</div>'
             )
         gs.append('</div>')
@@ -615,7 +618,7 @@ def build_html(odds: dict, fetched_at) -> str:
         "".join(sched),
         "</div>",
         '<div class="sidebar-col">',
-        '<div class="section-label">Group Standings &mdash; Avg Win %</div>',
+        '<div class="section-label">Group Standings &mdash; Expected Wins</div>',
         '<div class="gs-panel">',
         "".join(gs),
         "</div></div>",
