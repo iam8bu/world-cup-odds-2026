@@ -523,7 +523,6 @@ def fmt_pct(p, d: int = 1) -> str:
 
 
 COMP_LABELS = {
-    "green": "Open game",
     "amber": "Moderate favorite",
     "red":   "Heavy favorite",
 }
@@ -607,29 +606,31 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
         title_probs = {}
 
     # ---- pre-compute watchability for all 72 games ----
-    raw_scores: dict = {}
+    # competitiveness: 1.0 = perfect 33/33/33 split, 0.0 = one outcome at 100%
+    # stakes: Spain+France combined title prob as the ceiling (always 0–1)
+    tp_spain  = title_probs.get("Spain",  0.0) or 0.0
+    tp_france = title_probs.get("France", 0.0) or 0.0
+    max_combined = tp_spain + tp_france
+
     title_fallback: set = set()
+    watchability: dict = {}
     for g in SCHEDULE:
         key = (g["home"], g["away"])
         o = odds.get(key)
         if not o:
-            raw_scores[key] = None
+            watchability[key] = None
             continue
         max_outcome = max(o["home_prob"], o["draw_prob"], o["away_prob"])
-        tp_h = title_probs.get(g["home"])
-        tp_a = title_probs.get(g["away"])
-        if tp_h is None and tp_a is None:
-            raw_scores[key] = 1.0 - max_outcome
-            title_fallback.add(key)
-        else:
-            raw_scores[key] = (1.0 - max_outcome) * ((tp_h or 0.0) + (tp_a or 0.0))
+        competitiveness = 1.0 - ((max_outcome - 1/3) / (2/3))
 
-    valid = [v for v in raw_scores.values() if v is not None]
-    max_raw = max(valid) if valid else 1.0
-    watchability: dict = {
-        k: (round((v / max_raw) * 100) if v is not None else None)
-        for k, v in raw_scores.items()
-    }
+        if max_combined == 0.0:
+            title_fallback.add(key)
+            watchability[key] = round(competitiveness * 100)
+        else:
+            tp_h = title_probs.get(g["home"], 0.0) or 0.0
+            tp_a = title_probs.get(g["away"], 0.0) or 0.0
+            stakes = min((tp_h + tp_a) / max_combined, 1.0)
+            watchability[key] = round(competitiveness * stakes * 100)
 
     # ---- schedule ----
     date_games: dict = {}
