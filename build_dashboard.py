@@ -446,17 +446,18 @@ footer a { color: var(--blue); text-decoration: none; }
 }
 .mc-table thead th {
   font-size: 9px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .8px;
+  text-transform: uppercase; letter-spacing: .5px;
   padding: 3px 0 5px;
   border-bottom: 1px solid var(--border);
   text-align: right;
 }
 .mc-table thead th:first-child { text-align: left; }
-.mc-th-1st   { color: var(--green); width: 30px; }
-.mc-th-2nd   { color: var(--amber); width: 30px; }
-.mc-th-3rd   { color: var(--muted); width: 30px; }
-.mc-th-4th   { color: var(--red);   width: 30px; }
-.mc-th-champ { color: #fbbf24;      width: 42px; }
+.mc-table thead th:not(:first-child) { padding-left: 6px; }
+.mc-th-1st   { color: var(--green); width: 34px; }
+.mc-th-2nd   { color: var(--amber); width: 34px; }
+.mc-th-3rd   { color: var(--muted); width: 34px; }
+.mc-th-4th   { color: var(--red);   width: 34px; }
+.mc-th-champ { color: #fbbf24;      width: 44px; }
 .mc-table tbody td {
   padding: 4px 0 3px;
   border-bottom: 1px solid rgba(31,45,71,.5);
@@ -465,6 +466,7 @@ footer a { color: var(--blue); text-decoration: none; }
   font-size: 11px;
   color: var(--muted);
 }
+.mc-table tbody td:not(:first-child) { padding-left: 6px; }
 .mc-table tbody tr:last-child td { border-bottom: none; }
 .mc-td-team {
   text-align: left !important;
