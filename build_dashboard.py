@@ -429,14 +429,59 @@ footer a:hover { text-decoration: underline; }
 
 /* ── Responsive ── */
 @media (max-width: 960px) {
-  .main-layout { flex-direction: column; }
+  .main-layout  { flex-direction: column; gap: 14px; }
   .sidebar-col  { width: 100%; position: static; }
-  .gs-panel     { max-height: 380px; }
+  .gs-panel     { max-height: none; }
 }
+
+/* Tablet (560–960px) */
+@media (max-width: 760px) {
+  header { padding: 28px 20px 22px; }
+  .main-layout { padding: 18px 12px 40px; }
+}
+
+/* Mobile (≤560px) */
 @media (max-width: 560px) {
+  /* Header */
+  header { padding: 22px 16px 18px; }
+  .header-eyebrow { font-size: 9px; letter-spacing: 1.5px; margin-bottom: 10px; }
+  header h1 { margin-bottom: 10px; }
+  .subtitle { font-size: 12px; }
+
+  /* Summary strip — stack vertically */
   .summary-strip { flex-direction: column; }
-  .summary-item  { border-right: none; border-bottom: 1px solid var(--border); }
-  .games-grid    { grid-template-columns: 1fr; }
+  .summary-item  {
+    border-right: none; border-bottom: 1px solid var(--border);
+    padding: 12px 20px; min-width: 0;
+  }
+  .summary-item:last-child { border-bottom: none; }
+
+  /* Legend — horizontal scroll instead of wrapping */
+  .legend-bar {
+    flex-wrap: nowrap; overflow-x: auto;
+    justify-content: flex-start; gap: 14px;
+    padding: 8px 14px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .legend-bar::-webkit-scrollbar { display: none; }
+
+  /* Main layout */
+  .main-layout { padding: 14px 10px 36px; gap: 12px; }
+
+  /* Cards */
+  .games-grid { grid-template-columns: 1fr; gap: 8px; }
+  .game-card  { padding: 11px 12px 9px; border-radius: 8px; }
+  .game-card:hover { transform: none; }   /* disable lift on touch */
+
+  /* Bigger touch targets for sort buttons */
+  .sort-btn    { padding: 9px 16px; font-size: 12px; }
+  .sort-toggle { margin-bottom: 12px; }
+
+  /* Sidebar */
+  .section-label { margin-bottom: 10px; }
+  .mc-sim-note   { font-size: 9px; }
+  .gs-group      { padding: 10px 11px; }
 }
 
 /* ── Watchability ── */
