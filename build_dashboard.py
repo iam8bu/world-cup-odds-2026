@@ -159,48 +159,62 @@ FLAGS = {
 # CSS
 # ---------------------------------------------------------------------------
 CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
 :root {
-  --bg:        #080c18;
-  --surface:   #111827;
-  --surface2:  #1a2236;
-  --border:    #1f2d47;
-  --text:      #e2e8f0;
-  --muted:     #7a8ba0;
-  --blue:      #3b82f6;
-  --draw:      #6b7280;
-  --orange:    #f97316;
-  --green:     #10b981;
-  --green-dim: rgba(16,185,129,.11);
-  --green-bdr: rgba(16,185,129,.35);
-  --amber:     #f59e0b;
-  --amber-dim: rgba(245,158,11,.10);
-  --amber-bdr: rgba(245,158,11,.32);
-  --red:       #ef4444;
-  --red-dim:   rgba(239,68,68,.08);
-  --red-bdr:   rgba(239,68,68,.25);
-  --gray-dim:  rgba(75,85,99,.10);
-  --gray-bdr:  rgba(75,85,99,.28);
+  --bg:        #0d1117;
+  --surface:   #161b22;
+  --surface2:  #21262d;
+  --border:    #30363d;
+  --text:      #e6edf3;
+  --muted:     #7d8590;
+  --blue:      #2f81f7;
+  --draw:      #6e7681;
+  --orange:    #f0883e;
+  --green:     #3fb950;
+  --green-dim: rgba(63,185,80,.09);
+  --green-bdr: rgba(63,185,80,.28);
+  --amber:     #d29922;
+  --amber-dim: rgba(210,153,34,.09);
+  --amber-bdr: rgba(210,153,34,.28);
+  --red:       #f85149;
+  --red-dim:   rgba(248,81,73,.07);
+  --red-bdr:   rgba(248,81,73,.22);
+  --gray-dim:  rgba(110,118,129,.07);
+  --gray-bdr:  rgba(110,118,129,.20);
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-               "Helvetica Neue", Arial, sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* ── Header ── */
 header {
-  background: linear-gradient(160deg, #0c1528 0%, #162040 100%);
+  background: linear-gradient(180deg, #111d35 0%, #0d1117 100%);
   border-bottom: 1px solid var(--border);
-  padding: 26px 32px 20px;
+  padding: 36px 32px 28px;
   text-align: center;
 }
-header h1 { font-size: clamp(1.3rem, 3vw, 1.9rem); font-weight: 800; letter-spacing: -.4px; }
+.header-eyebrow {
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--blue); margin-bottom: 12px;
+}
+header h1 {
+  font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+  font-weight: 900; letter-spacing: -.6px; line-height: 1.1;
+  margin-bottom: 12px;
+}
 header h1 span { color: var(--blue); }
-.subtitle { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.subtitle {
+  color: var(--muted); font-size: 13px; line-height: 1.6;
+  max-width: 520px; margin: 0 auto;
+}
 
 /* ── Summary strip ── */
 .summary-strip {
@@ -211,23 +225,24 @@ header h1 span { color: var(--blue); }
   flex-wrap: wrap;
 }
 .summary-item {
-  padding: 13px 26px;
+  padding: 15px 30px;
   text-align: center;
   border-right: 1px solid var(--border);
-  min-width: 150px;
+  min-width: 160px;
 }
 .summary-item:last-child { border-right: none; }
 .s-label {
   display: block;
   color: var(--muted);
   font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 1.2px;
-  margin-bottom: 3px;
+  letter-spacing: 1.4px;
+  margin-bottom: 5px;
 }
-.s-value { display: block; font-size: 1.25rem; font-weight: 700; }
-.s-value.small { font-size: .95rem; }
-.s-sub { display: block; font-size: 10px; color: var(--muted); margin-top: 3px; }
+.s-value { display: block; font-size: 1.2rem; font-weight: 800; letter-spacing: -.3px; }
+.s-value.small { font-size: .9rem; font-weight: 700; }
+.s-sub { display: block; font-size: 10px; color: var(--muted); margin-top: 4px; font-weight: 500; }
 
 /* ── Legend ── */
 .legend-bar {
@@ -265,53 +280,55 @@ header h1 span { color: var(--blue); }
 }
 
 /* ── Date groups ── */
-.date-group   { margin-bottom: 26px; }
+.date-group   { margin-bottom: 28px; }
 .date-header  {
   display: flex; align-items: center; gap: 8px;
-  font-size: 14px; font-weight: 600; color: var(--blue);
-  padding-bottom: 7px; border-bottom: 1px solid var(--border); margin-bottom: 10px;
+  font-size: 10px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 1.4px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 12px;
 }
-.game-count { font-size: 11px; color: var(--muted); font-weight: 400; }
-.games-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 10px; }
+.game-count { font-size: 10px; color: var(--muted); font-weight: 500; opacity: .7; }
+.games-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 10px; }
 
 /* ── Game cards ── */
 .game-card {
   background: var(--surface);
-  border-radius: 8px;
-  padding: 12px 13px 10px;
+  border-radius: 10px;
+  padding: 13px 14px 11px;
   border: 1px solid var(--border);
-  border-left: 3px solid #374151;
-  transition: transform .1s, box-shadow .1s;
+  border-left: 3px solid #30363d;
+  transition: transform .12s ease, box-shadow .12s ease;
 }
-.game-card:hover { transform: translateY(-2px); box-shadow: 0 4px 18px rgba(0,0,0,.4); }
+.game-card:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,0,0,.5); }
 .game-card.green { border-left-color: var(--green); background: var(--green-dim); border-color: var(--green-bdr); }
 .game-card.amber { border-left-color: var(--amber); background: var(--amber-dim); border-color: var(--amber-bdr); }
 .game-card.red   { border-left-color: var(--red);   background: var(--red-dim);   border-color: var(--red-bdr);   }
-.game-card.gray  { border-left-color: #374151;       background: var(--gray-dim);  border-color: var(--gray-bdr);  }
+.game-card.gray  { border-left-color: #30363d;       background: var(--gray-dim);  border-color: var(--gray-bdr);  }
 
 .card-top {
-  display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 9px;
+  display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 10px;
 }
 .grp-badge {
-  background: var(--blue); color: #fff;
+  background: rgba(47,129,247,.18); color: var(--blue);
   font-size: 9px; font-weight: 700;
-  padding: 2px 6px; border-radius: 3px; letter-spacing: .5px;
+  padding: 2px 7px; border-radius: 4px; letter-spacing: .6px;
+  border: 1px solid rgba(47,129,247,.3);
 }
-.card-time { color: var(--muted); font-size: 11px; }
+.card-time { color: var(--muted); font-size: 11px; font-weight: 500; }
 
-.matchup { margin-bottom: 9px; }
+.matchup { margin-bottom: 10px; }
 .team-row { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
 .team-flag { font-size: 16px; line-height: 1; flex-shrink: 0; }
 .team-name-wrap { flex: 1; min-width: 0; }
-.team-name { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-.title-prob { display: block; font-size: 9px; color: var(--muted); margin-top: 1px; }
-.vs-line { font-size: 10px; color: var(--muted); padding: 1px 0 1px 23px; }
+.team-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.title-prob { display: block; font-size: 9px; color: var(--muted); margin-top: 1px; font-weight: 500; }
+.vs-line { font-size: 10px; color: var(--muted); padding: 1px 0 1px 23px; font-weight: 500; }
 .color-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .home-dot  { background: var(--blue); }
 .away-dot  { background: var(--orange); }
 
 /* Segmented probability bar */
-.seg-bar-wrap { display: flex; height: 5px; border-radius: 3px; overflow: hidden; margin: 8px 0 7px; background: var(--border); }
+.seg-bar-wrap { display: flex; height: 6px; border-radius: 4px; overflow: hidden; margin: 9px 0 7px; background: var(--border); }
 .seg-home { background: var(--blue); }
 .seg-draw { background: var(--draw); }
 .seg-away { background: var(--orange); }
@@ -340,19 +357,19 @@ header h1 span { color: var(--blue); }
 .gs-panel {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
-  max-height: calc(100vh - 110px);
+  max-height: calc(100vh - 120px);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
-.gs-group { border-bottom: 1px solid var(--border); padding: 10px 11px; }
+.gs-group { border-bottom: 1px solid var(--border); padding: 11px 12px; }
 .gs-group:last-child { border-bottom: none; }
 .gs-title {
   font-size: 9px; font-weight: 800;
-  text-transform: uppercase; letter-spacing: 1.5px;
-  color: var(--blue); margin-bottom: 7px;
+  text-transform: uppercase; letter-spacing: 1.8px;
+  color: var(--muted); margin-bottom: 8px;
 }
 .gs-row {
   display: grid;
@@ -375,13 +392,13 @@ header h1 span { color: var(--blue); }
 
 /* ── Completed result cards ── */
 .final-badge {
-  font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px;
-  letter-spacing: .5px; background: var(--surface2); color: var(--muted);
+  font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
+  letter-spacing: .6px; background: var(--surface2); color: var(--muted);
   border: 1px solid var(--border);
 }
 .upset-badge {
-  font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 3px;
-  letter-spacing: .5px; background: var(--amber-dim); color: var(--amber);
+  font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 4px;
+  letter-spacing: .6px; background: var(--amber-dim); color: var(--amber);
   border: 1px solid var(--amber-bdr);
 }
 .team-score {
@@ -402,11 +419,13 @@ header h1 span { color: var(--blue); }
 
 /* ── Footer ── */
 footer {
-  text-align: center; padding: 18px;
+  text-align: center; padding: 20px;
   color: var(--muted); font-size: 11px;
   border-top: 1px solid var(--border);
+  line-height: 1.8;
 }
 footer a { color: var(--blue); text-decoration: none; }
+footer a:hover { text-decoration: underline; }
 
 /* ── Responsive ── */
 @media (max-width: 960px) {
@@ -421,15 +440,21 @@ footer a { color: var(--blue); text-decoration: none; }
 }
 
 /* ── Watchability ── */
-.watch-row { display: flex; align-items: center; gap: 6px; margin: 6px 0 4px; }
-.watch-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); flex-shrink: 0; }
-.watch-score { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.watch-row { display: flex; align-items: center; gap: 8px; margin: 7px 0 5px; }
+.watch-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--muted); flex-shrink: 0; font-weight: 600; }
+.watch-bar-wrap { flex: 1; height: 4px; background: rgba(255,255,255,.07); border-radius: 2px; overflow: hidden; }
+.watch-bar-fill { height: 100%; border-radius: 2px; transition: width .3s ease; }
+.game-card.green .watch-bar-fill { background: var(--green); }
+.game-card.amber .watch-bar-fill { background: var(--amber); }
+.game-card.red   .watch-bar-fill { background: var(--red); }
+.game-card.gray  .watch-bar-fill { background: var(--muted); opacity: .4; }
+.watch-score { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; flex-shrink: 0; min-width: 22px; text-align: right; }
 .game-card.green .watch-score { color: var(--green); }
 .game-card.amber .watch-score { color: var(--amber); }
 .game-card.red   .watch-score { color: var(--red); }
 .game-card.gray  .watch-score { color: var(--muted); }
-.watch-pending { font-size: 9px; color: var(--amber); margin-left: 2px; }
-.faded { opacity: .42; }
+.watch-pending { font-size: 9px; color: var(--amber); }
+.faded { opacity: .4; }
 
 /* ── Monte Carlo group standings ── */
 .mc-sim-note {
@@ -488,11 +513,11 @@ footer a { color: var(--blue); text-decoration: none; }
 /* ── Sort toggle ── */
 .sort-toggle { display: flex; gap: 6px; margin-bottom: 13px; }
 .sort-btn {
-  padding: 5px 12px; border-radius: 5px;
+  padding: 6px 14px; border-radius: 6px;
   border: 1px solid var(--border); background: var(--surface);
   color: var(--muted); font-size: 11px; font-weight: 600;
-  cursor: pointer; letter-spacing: .3px;
-  transition: background .12s, color .12s;
+  cursor: pointer; letter-spacing: .3px; font-family: inherit;
+  transition: background .12s, color .12s, border-color .12s;
 }
 .sort-btn:hover { background: var(--surface2); color: var(--text); }
 .sort-active { background: var(--blue) !important; color: #fff !important; border-color: var(--blue) !important; }
@@ -946,6 +971,7 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
                     f'</div>'
                     f'<div class="watch-row faded">'
                     f'<span class="watch-label">Watchability</span>'
+                    f'<div class="watch-bar-wrap"><div class="watch-bar-fill" style="width:{data_w}%"></div></div>'
                     f'<span class="watch-score">{watch_score_str}</span>'
                     f'</div>'
                     f'<div class="matchup">'
@@ -1012,6 +1038,7 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
                     f'</div>'
                     f'<div class="watch-row">'
                     f'<span class="watch-label">Watchability</span>'
+                    f'<div class="watch-bar-wrap"><div class="watch-bar-fill" style="width:{data_w}%"></div></div>'
                     f'<span class="watch-score">{watch_score_str}</span>'
                     + watch_pending_html +
                     f'</div>'
@@ -1112,8 +1139,9 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
         f"<style>{CSS}</style>",
         "</head><body>",
         "<header>",
+        '<p class="header-eyebrow">2026 FIFA World Cup &bull; Group Stage</p>',
         "<h1>&#9917; 2026 FIFA World Cup <span>&mdash; Watchability</span></h1>",
-        '<p class="subtitle">Group Stage Dashboard &bull; Watchability scores powered by bookmaker odds &bull; Updated daily</p>',
+        '<p class="subtitle">All 72 group stage matches ranked by competitiveness and championship stakes &mdash; using bookmaker odds to measure what&rsquo;s on the line.</p>',
         "</header>",
         '<div class="summary-strip">',
         '<div class="summary-item"><span class="s-label">Game of the Day</span>',
