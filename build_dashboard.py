@@ -439,57 +439,42 @@ footer a { color: var(--blue); text-decoration: none; }
   line-height: 1.4;
   font-style: italic;
 }
-.mc-panel-legend {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  font-size: 9px;
+.mc-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.mc-table thead th {
+  font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .8px;
+  padding: 3px 0 5px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+.mc-table thead th:first-child { text-align: left; }
+.mc-th-1st   { color: var(--green); width: 30px; }
+.mc-th-2nd   { color: var(--amber); width: 30px; }
+.mc-th-3rd   { color: var(--muted); width: 30px; }
+.mc-th-4th   { color: var(--red);   width: 30px; }
+.mc-th-champ { color: #fbbf24;      width: 42px; }
+.mc-table tbody td {
+  padding: 4px 0 3px;
+  border-bottom: 1px solid rgba(31,45,71,.5);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
   color: var(--muted);
-  padding: 6px 11px;
-  border-bottom: 1px solid var(--border);
 }
-.mc-panel-legend span { display: flex; align-items: center; gap: 3px; }
-.mc-team-row {
-  padding: 6px 0 4px;
-  border-bottom: 1px solid var(--border);
-}
-.mc-team-row:last-child { border-bottom: none; }
-.mc-team-info {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 4px;
-}
-.mc-flag { font-size: 12px; flex-shrink: 0; }
-.mc-name {
-  font-size: 11px; font-weight: 500;
-  flex: 1; min-width: 0;
+.mc-table tbody tr:last-child td { border-bottom: none; }
+.mc-td-team {
+  text-align: left !important;
+  color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 0;
 }
-.mc-pts {
-  font-size: 10px; font-weight: 700;
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 3px; padding: 1px 4px;
-  color: var(--text); font-variant-numeric: tabular-nums; flex-shrink: 0;
-}
-.mc-seg-bar-wrap {
-  display: flex; height: 8px; border-radius: 3px;
-  overflow: hidden; background: var(--border); margin-bottom: 3px;
-}
-.mc-seg-1st { background: var(--green); }
-.mc-seg-2nd { background: var(--amber); }
-.mc-seg-3rd { background: var(--blue); }
-.mc-seg-out { background: var(--red); }
-.mc-prob-row {
-  display: flex; justify-content: space-between;
-  font-size: 9px; font-variant-numeric: tabular-nums;
-  margin-bottom: 2px;
-}
-.mc-p1 { color: var(--green); }
-.mc-p2 { color: var(--amber); }
-.mc-p3 { color: var(--blue); }
-.mc-p4 { color: var(--red); }
-.mc-champ { font-size: 9px; color: var(--muted); text-align: right; }
+.mc-td-1st   { color: var(--green); font-weight: 600; }
+.mc-td-2nd   { color: var(--amber); font-weight: 600; }
+.mc-td-champ { color: #fbbf24; }
 
 /* ── Date chip (visible in watchability sort only) ── */
 .date-chip {
@@ -1055,14 +1040,6 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
 
     # ---- group standings HTML (Monte Carlo) ----
     gs = []
-    gs.append(
-        '<div class="mc-panel-legend">'
-        '<span><span class="dot green"></span>1st</span>'
-        '<span><span class="dot amber"></span>2nd</span>'
-        '<span><span class="dot" style="background:var(--blue)"></span>3rd (may adv.)</span>'
-        '<span><span class="dot red"></span>Out</span>'
-        '</div>'
-    )
     for grp, teams in GROUPS.items():
         gs.append(f'<div class="gs-group"><div class="gs-title">Group {esc(grp)}</div>')
 
@@ -1073,43 +1050,33 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
                 key=lambda t: grp_sim[t][1] + grp_sim[t][2],
                 reverse=True,
             )
+            gs.append(
+                '<table class="mc-table">'
+                '<thead><tr>'
+                '<th>Team</th>'
+                '<th class="mc-th-1st">1st</th>'
+                '<th class="mc-th-2nd">2nd</th>'
+                '<th class="mc-th-3rd">3rd</th>'
+                '<th class="mc-th-4th">4th</th>'
+                '<th class="mc-th-champ">Champ</th>'
+                '</tr></thead><tbody>'
+            )
             for team in sorted_teams:
                 probs = grp_sim[team]
                 p1, p2, p3, p4 = probs[1], probs[2], probs[3], probs[4]
-                pts = (current_actual_points or {}).get(team, 0)
                 tp = title_probs.get(team)
-
-                w1 = f"{p1 * 100:.1f}"
-                w2 = f"{p2 * 100:.1f}"
-                w3 = f"{p3 * 100:.1f}"
-                w4 = f"{max(0.0, p4 * 100):.1f}"
-
-                champ_html = (
-                    f'<div class="mc-champ">{tp * 100:.1f}% title odds</div>'
-                    if tp is not None else ""
-                )
+                champ_str = f"{tp * 100:.1f}%" if tp is not None else "&mdash;"
                 gs.append(
-                    f'<div class="mc-team-row">'
-                    f'<div class="mc-team-info">'
-                    f'<span class="mc-flag">{flag(team)}</span>'
-                    f'<span class="mc-name">{esc(team)}</span>'
-                    f'<span class="mc-pts">{pts}pt{"s" if pts != 1 else ""}</span>'
-                    f'</div>'
-                    f'<div class="mc-seg-bar-wrap">'
-                    f'<div class="mc-seg-1st" style="width:{w1}%"></div>'
-                    f'<div class="mc-seg-2nd" style="width:{w2}%"></div>'
-                    f'<div class="mc-seg-3rd" style="width:{w3}%"></div>'
-                    f'<div class="mc-seg-out" style="width:{w4}%"></div>'
-                    f'</div>'
-                    f'<div class="mc-prob-row">'
-                    f'<span class="mc-p1">1st&nbsp;{p1 * 100:.0f}%</span>'
-                    f'<span class="mc-p2">2nd&nbsp;{p2 * 100:.0f}%</span>'
-                    f'<span class="mc-p3">3rd&nbsp;{p3 * 100:.0f}%</span>'
-                    f'<span class="mc-p4">out&nbsp;{p4 * 100:.0f}%</span>'
-                    f'</div>'
-                    + champ_html +
-                    f'</div>'
+                    f'<tr>'
+                    f'<td class="mc-td-team">{flag(team)}&nbsp;{esc(team)}</td>'
+                    f'<td class="mc-td-1st">{p1 * 100:.0f}%</td>'
+                    f'<td class="mc-td-2nd">{p2 * 100:.0f}%</td>'
+                    f'<td>{p3 * 100:.0f}%</td>'
+                    f'<td>{p4 * 100:.0f}%</td>'
+                    f'<td class="mc-td-champ">{champ_str}</td>'
+                    f'</tr>'
                 )
+            gs.append('</tbody></table>')
         else:
             ranked = sorted(
                 [(t, team_expected_wins(t, odds)) for t in teams],
