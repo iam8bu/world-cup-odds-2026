@@ -401,6 +401,14 @@ header h1 span { color: var(--blue); }
   letter-spacing: .6px; background: var(--amber-dim); color: var(--amber);
   border: 1px solid var(--amber-bdr);
 }
+.game-card[data-completed] { opacity: 0.45; }
+.completed-toggle {
+  margin-left: auto; font-size: 10px; font-weight: 600;
+  color: var(--muted); background: none; border: 1px solid var(--border);
+  border-radius: 4px; padding: 2px 9px; cursor: pointer; font-family: inherit;
+  white-space: nowrap; transition: color .12s, border-color .12s;
+}
+.completed-toggle:hover { color: var(--text); border-color: var(--muted); }
 .team-score {
   margin-left: auto; font-size: 16px; font-weight: 800;
   font-variant-numeric: tabular-nums; color: var(--muted);
@@ -1014,17 +1022,12 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
                 )
 
                 sched.append(
-                    f'<div class="game-card {card_cls}" data-w="{data_w}" data-date="{esc(g["date"])}">'
+                    f'<div class="game-card gray" data-w="" data-date="{esc(g["date"])}" data-completed="1">'
                     f'<div class="card-top">'
                     f'<span class="grp-badge">GRP {esc(g["grp"])}</span>'
                     + upset_badge +
                     f'<span class="date-chip">{esc(g["date"])}</span>'
                     f'<span class="final-badge">FINAL</span>'
-                    f'</div>'
-                    f'<div class="watch-row faded">'
-                    f'<span class="watch-label">Watchability</span>'
-                    f'<div class="watch-bar-wrap"><div class="watch-bar-fill" style="width:{data_w}%"></div></div>'
-                    f'<span class="watch-score">{watch_score_str}</span>'
                     f'</div>'
                     f'<div class="matchup">'
                     f'<div class="team-row {home_cls}">'
@@ -1235,6 +1238,29 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
         "<script>",
         "(function(){",
         "var s=document.getElementById('schedule-content');",
+        "function initToggles(){",
+        "  s.querySelectorAll('.date-group').forEach(function(grp){",
+        "    if(grp.querySelector('.completed-toggle'))return;",
+        "    var cards=grp.querySelectorAll('.game-card[data-completed]');",
+        "    if(!cards.length)return;",
+        "    cards.forEach(function(c){c.hidden=true;});",
+        "    var btn=document.createElement('button');",
+        "    btn.className='completed-toggle';",
+        "    btn.textContent='Show '+cards.length+' completed';",
+        "    grp.querySelector('.date-header').appendChild(btn);",
+        "  });",
+        "}",
+        "initToggles();",
+        "s.addEventListener('click',function(e){",
+        "  var t=e.target;",
+        "  if(!t.classList||!t.classList.contains('completed-toggle'))return;",
+        "  var grp=t.parentNode;while(grp&&!grp.classList.contains('date-group'))grp=grp.parentNode;",
+        "  if(!grp)return;",
+        "  var cards=grp.querySelectorAll('.game-card[data-completed]');",
+        "  var show=cards.length&&cards[0].hidden;",
+        "  cards.forEach(function(c){c.hidden=!show;});",
+        "  t.textContent=show?'Hide completed':'Show '+cards.length+' completed';",
+        "});",
         "var snap=s.innerHTML;",
         "var mode='date';",
         "window.setSort=function(m){",
@@ -1244,7 +1270,7 @@ def build_html(odds: dict, fetched_at, results: dict = None, title_probs: dict =
         "document.getElementById('btn-watch').classList.toggle('sort-active',m==='watch');",
         "if(m==='date'){s.innerHTML=snap;}",
         "else{",
-        "var cards=Array.prototype.slice.call(s.querySelectorAll('.game-card'));",
+        "var cards=Array.prototype.slice.call(s.querySelectorAll('.game-card:not([data-completed])'));",
         "cards.sort(function(a,b){return(parseInt(b.dataset.w)||0)-(parseInt(a.dataset.w)||0);});",
         "cards.forEach(function(c){var d=c.querySelector('.date-chip');if(d)d.style.display='inline-flex';});",
         "var g=document.createElement('div');g.className='games-grid';",
