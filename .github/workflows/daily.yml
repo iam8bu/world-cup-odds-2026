@@ -32,14 +32,15 @@ jobs:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
         run: python fetch_odds.py
 
-      - name: Rebuild dashboard
-        run: python build_dashboard.py
-
       - name: Commit and push changes
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase --autostash origin main
+          cp odds.db /tmp/fresh_odds.db
+          git checkout -- odds.db
+          git pull --rebase origin main
+          cp /tmp/fresh_odds.db odds.db
+          python build_dashboard.py
           git add index.html odds.db
           git diff --cached --quiet || git commit -m "chore: update odds $(date -u '+%Y-%m-%d')"
           git push
