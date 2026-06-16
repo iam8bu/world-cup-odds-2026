@@ -1,9 +1,7 @@
 name: Update World Cup Odds Dashboard
 
 on:
-  schedule:
-    - cron: "23 13 * * *"  # ~9:23am ET (UTC-4 during summer), off-peak
-  workflow_dispatch:        # allow manual runs
+  workflow_dispatch:  # manual trigger only
 
 permissions:
   contents: write
