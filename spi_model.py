@@ -1301,6 +1301,41 @@ def run_full_tournament_simulation(n: int = 10000, db_path: str = DB_PATH,
         if _verbose:
             print(f"  {len(cache)} ordered matchup predictions cached in {time.time() - t0:.1f}s")
 
+    # Auto-load completed WC2026 results when no fixed_result is provided
+    if fixed_result is None:
+        _combo_order: dict = {
+            frozenset({ta, tb}): (ta, tb)
+            for grp, teams in WC2026_GROUPS.items()
+            for ta, tb in _combinations(teams, 2)
+        }
+        if os.path.exists(ODDS_DB_PATH):
+            _conn = sqlite3.connect(ODDS_DB_PATH)
+            try:
+                _tbl = _conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='match_results'"
+                ).fetchone()
+                if _tbl:
+                    _cols = [r[1] for r in _conn.execute("PRAGMA table_info(match_results)").fetchall()]
+                    _where = "WHERE completed = 1" if "completed" in _cols else ""
+                    _rows = _conn.execute(
+                        f"SELECT home_team, away_team, home_score, away_score "
+                        f"FROM match_results {_where}"
+                    ).fetchall()
+                    _fixed: dict = {}
+                    for _home, _away, _hs, _aws in _rows:
+                        _hn = normalize(_home)
+                        _an = normalize(_away)
+                        _canonical = _combo_order.get(frozenset({_hn, _an}))
+                        if _canonical:
+                            _ta, _tb = _canonical
+                            _fixed[_canonical] = (int(_hs), int(_aws)) if _ta == _hn else (int(_aws), int(_hs))
+                    if _fixed:
+                        fixed_result = _fixed
+                        if _verbose:
+                            print(f"  {len(_fixed)} completed WC2026 games fixed at actual scorelines.")
+            finally:
+                _conn.close()
+
     grp_matchups = {
         grp: list(_combinations(teams, 2))
         for grp, teams in WC2026_GROUPS.items()
