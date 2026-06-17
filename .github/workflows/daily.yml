@@ -31,7 +31,10 @@ jobs:
         run: python fetch_odds.py
 
       - name: Update SPI ratings and tournament simulation
-        run: python spi_model.py
+        run: |
+          python spi_model.py
+          python spi_model.py --simulate
+          python spi_model.py --leverage
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
 
