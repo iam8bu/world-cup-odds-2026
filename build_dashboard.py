@@ -589,7 +589,6 @@ footer a:hover { text-decoration: underline; }
 .mc-th-2nd   { color: var(--amber); width: 34px; }
 .mc-th-3rd   { color: var(--muted); width: 34px; }
 .mc-th-4th   { color: var(--red);   width: 34px; }
-.mc-th-champ { color: #fbbf24;      width: 44px; }
 .mc-table tbody td {
   padding: 4px 0 3px;
   border-bottom: 1px solid rgba(31,45,71,.5);
@@ -608,7 +607,6 @@ footer a:hover { text-decoration: underline; }
 }
 .mc-td-1st   { color: var(--green); font-weight: 600; }
 .mc-td-2nd   { color: var(--amber); font-weight: 600; }
-.mc-td-champ { color: #fbbf24; }
 
 /* ── Date chip (visible in watchability sort only) ── */
 .date-chip {
@@ -630,16 +628,17 @@ footer a:hover { text-decoration: underline; }
 .sort-active { background: var(--blue) !important; color: #fff !important; border-color: var(--blue) !important; }
 
 /* ── Tabs ── */
-.tab-bar { display:flex; gap:4px; padding:12px 14px 0; background:var(--surface); border-bottom:1px solid var(--border); }
-.tab-btn { padding:7px 16px; border-radius:6px 6px 0 0; border:1px solid var(--border); border-bottom:none; background:var(--bg); color:var(--muted); font-size:12px; font-weight:600; cursor:pointer; font-family:inherit; transition:color .12s,background .12s; }
-.tab-btn:hover { color:var(--text); background:var(--surface2); }
-.tab-btn.tab-active { background:var(--surface); color:var(--text); border-bottom:1px solid var(--surface); margin-bottom:-1px; }
+.tab-bar { display:flex; gap:8px; padding:16px 18px; background:var(--surface); border-bottom:2px solid var(--border); }
+.tab-btn { padding:10px 24px; border-radius:8px; border:2px solid var(--border); background:var(--bg); color:var(--muted); font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; letter-spacing:.3px; transition:color .15s,background .15s,border-color .15s; }
+.tab-btn:hover { color:var(--text); border-color:var(--blue); }
+.tab-btn.tab-active { background:var(--blue); color:#fff; border-color:var(--blue); }
 .tab-panel { display:none; }
 .tab-panel.tab-visible { display:block; }
 
 /* ── Tournament table ── */
 .tourn-wrap { max-width:960px; margin:0 auto; padding:20px 14px 48px; }
-.tourn-table { width:100%; border-collapse:collapse; font-size:13px; }
+.tourn-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.tourn-table { width:100%; border-collapse:collapse; font-size:13px; min-width:560px; }
 .tourn-table th { cursor:pointer; padding:6px 8px; text-align:right; border-bottom:2px solid var(--border); color:var(--muted); font-weight:500; white-space:nowrap; user-select:none; }
 .tourn-table th:nth-child(2) { text-align:left; }
 .tourn-table td { padding:5px 8px; text-align:right; border-bottom:1px solid var(--border); font-size:12px; }
@@ -1043,6 +1042,7 @@ def build_tournament_tab() -> str:
 
     header = (
         '<div class="tourn-wrap">'
+        '<div class="tourn-scroll">'
         '<table id="tourn-table" class="tourn-table"><thead><tr>'
         '<th onclick="sortTourn(0)" data-col="0">#</th>'
         '<th onclick="sortTourn(1)" data-col="1">Team</th>'
@@ -1098,6 +1098,7 @@ def build_tournament_tab() -> str:
 
     return (
         header + "".join(body_rows) + '</tbody></table>'
+        '</div>'
         '<p class="tourn-note">Probabilities from 10,000-run Monte Carlo simulation '
         'using SPI Poisson model. Updated daily.</p>'
         '</div>' + js
@@ -1446,14 +1447,11 @@ def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = No
                 '<th class="mc-th-2nd">2nd</th>'
                 '<th class="mc-th-3rd">3rd</th>'
                 '<th class="mc-th-4th">4th</th>'
-                '<th class="mc-th-champ">Win prob</th>'
                 '</tr></thead><tbody>'
             )
             for team in sorted_teams:
                 probs = grp_sim[team]
                 p1, p2, p3, p4 = probs[1], probs[2], probs[3], probs[4]
-                tp = spi_champ_probs.get(team)
-                champ_str = f"{tp * 100:.1f}%" if tp is not None else "&mdash;"
                 gs.append(
                     f'<tr>'
                     f'<td class="mc-td-team">{flag(team)}&nbsp;{esc(team)}</td>'
@@ -1461,7 +1459,6 @@ def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = No
                     f'<td class="mc-td-2nd">{p2 * 100:.0f}%</td>'
                     f'<td>{p3 * 100:.0f}%</td>'
                     f'<td>{p4 * 100:.0f}%</td>'
-                    f'<td class="mc-td-champ">{champ_str}</td>'
                     f'</tr>'
                 )
             gs.append('</tbody></table>')
