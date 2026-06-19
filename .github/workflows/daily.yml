@@ -43,9 +43,12 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           cp odds.db /tmp/fresh_odds.db
+          cp spi_ratings.db /tmp/fresh_spi.db
           git checkout -- odds.db
+          git checkout -- spi_ratings.db
           git pull --rebase origin main
           cp /tmp/fresh_odds.db odds.db
+          cp /tmp/fresh_spi.db spi_ratings.db
           python build_dashboard.py
           git add index.html odds.db spi_ratings.db
           git diff --cached --quiet || git commit -m "chore: update odds $(date -u '+%Y-%m-%d')"
