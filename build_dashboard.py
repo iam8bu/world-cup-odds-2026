@@ -721,9 +721,9 @@ def watch_cls(w) -> str:
     """Card color class based on normalized watchability score."""
     if w is None:
         return "gray"
-    if w >= 75:
+    if w >= 65:
         return "green"
-    if w >= 60:
+    if w >= 50:
         return "gray"
     return "red"
 
@@ -1629,9 +1629,9 @@ def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = No
         f'<span class="s-value small">{esc(updated_str)}</span></div>',
         "</div>",
         '<div class="legend-bar">',
-        '<span><span class="dot green"></span>High watchability (&ge;75)</span>',
-        '<span><span class="dot gray"></span>Watchable (60&ndash;74)</span>',
-        '<span><span class="dot red"></span>Lower watchability (&lt;60)</span>',
+        '<span><span class="dot green"></span>High watchability (&ge;65)</span>',
+        '<span><span class="dot gray"></span>Watchable (50&ndash;64)</span>',
+        '<span><span class="dot red"></span>Lower watchability (&lt;50)</span>',
         '<span style="color:#2f81f7">&#9632;</span><span>Home win</span>',
         '<span style="color:#6e7681">&#9632;</span><span>Draw</span>',
         '<span style="color:var(--orange)">&#9632;</span><span>Away win</span>',
