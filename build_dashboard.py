@@ -8,6 +8,7 @@ import sqlite3
 import os
 import time
 from html import escape as esc
+from zoneinfo import ZoneInfo
 
 DB_PATH = "odds.db"
 OUT_PATH = "index.html"
@@ -93,11 +94,17 @@ _SCHEDULE_FALLBACK = [
 _VENUE_MAP = {(g["home"], g["away"]): g["venue"] for g in _SCHEDULE_FALLBACK}
 _GROUP_MAP  = {team: g["grp"] for g in _SCHEDULE_FALLBACK for team in (g["home"], g["away"])}
 
-_ET = datetime.timezone(datetime.timedelta(hours=-4))
+def _parse_iso(ts: str) -> datetime.datetime:
+    """Parse an ISO-8601 timestamp, handling both Z and +00:00 UTC suffixes."""
+    return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
 def get_schedule(db_path: str) -> list:
-    """Return all games: upcoming from match_odds (API commence_time), completed from match_results."""
+    """Return the list of all 72 group stage fixtures.
+    Attempts to read fixture metadata (venue, kickoff time) from the schedule
+    data committed to the repo. Falls back to _SCHEDULE_FALLBACK if unavailable.
+    Note: match_odds is no longer populated by fetch_results.py — this function
+    reads static/committed fixture data only."""
     try:
         conn = sqlite3.connect(db_path)
         time_rows = conn.execute(
@@ -110,9 +117,9 @@ def get_schedule(db_path: str) -> list:
         ).fetchall())
         conn.close()
         time_map = {(h, a): ct for h, a, ct in time_rows}
-    except Exception:
-        time_map = {}
-        completed_pairs = set()
+    except Exception as e:
+        print(f"[WARNING] get_schedule() DB read failed ({e!r}), falling back to static schedule")
+        return _SCHEDULE_FALLBACK
 
     if not time_map:
         return list(_SCHEDULE_FALLBACK)
@@ -122,7 +129,7 @@ def get_schedule(db_path: str) -> list:
         pair = (g["home"], g["away"])
         ct = time_map.get(pair)
         if ct:
-            dt = datetime.datetime.fromisoformat(ct.replace("Z", "+00:00")).astimezone(_ET)
+            dt = _parse_iso(ct).astimezone(ZoneInfo("America/New_York"))
             h = dt.hour % 12 or 12
             ampm = "AM" if dt.hour < 12 else "PM"
             schedule.append({**g,
@@ -653,46 +660,6 @@ footer a:hover { text-decoration: underline; }
 # Helpers
 # ---------------------------------------------------------------------------
 
-def get_odds(db_path: str) -> tuple:
-    """
-    Return (odds_by_matchup, fetched_at) where odds_by_matchup is
-    {(home, away): {"home_prob": float, "draw_prob": float, "away_prob": float}}.
-    Uses the most recent fetched_at per individual match so completed games
-    still display their last known line.
-    """
-    if not os.path.exists(db_path):
-        return {}, None
-
-    conn = sqlite3.connect(db_path)
-    try:
-        # Check if match_odds table exists
-        tbl = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='match_odds'"
-        ).fetchone()
-        if not tbl:
-            return {}, None
-
-        rows = conn.execute("""
-            SELECT home_team, away_team, home_prob, draw_prob, away_prob
-            FROM match_odds m1
-            WHERE fetched_at = (
-                SELECT MAX(fetched_at) FROM match_odds m2
-                WHERE m2.home_team = m1.home_team AND m2.away_team = m1.away_team
-            )
-        """).fetchall()
-
-        latest = conn.execute("SELECT MAX(fetched_at) FROM match_odds").fetchone()
-        fetched_at = latest[0] if latest else None
-
-        odds = {}
-        for home, away, hp, dp, ap in rows:
-            odds[(home, away)] = {"home_prob": hp, "draw_prob": dp, "away_prob": ap}
-
-        return odds, fetched_at
-    finally:
-        conn.close()
-
-
 def get_results(db_path: str) -> dict:
     """Return {(home, away): {"home_score": int, "away_score": int}}."""
     if not os.path.exists(db_path):
@@ -751,32 +718,6 @@ def get_leaderboard_data():
         conn.close()
 
 
-def get_completed_results(db_path: str) -> dict:
-    """Return {(home, away): {'home_score': int, 'away_score': int}} for completed matches only."""
-    if not os.path.exists(db_path):
-        return {}
-    conn = sqlite3.connect(db_path)
-    try:
-        tbl = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='match_results'"
-        ).fetchone()
-        if not tbl:
-            return {}
-        cols = [row[1] for row in conn.execute("PRAGMA table_info(match_results)").fetchall()]
-        if 'completed' in cols:
-            rows = conn.execute(
-                "SELECT home_team, away_team, home_score, away_score "
-                "FROM match_results WHERE completed = 1"
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT home_team, away_team, home_score, away_score FROM match_results"
-            ).fetchall()
-        return {(h, a): {"home_score": hs, "away_score": aws} for h, a, hs, aws in rows}
-    finally:
-        conn.close()
-
-
 # ---------------------------------------------------------------------------
 # SPI watchability helpers
 # ---------------------------------------------------------------------------
@@ -791,28 +732,33 @@ def get_spi_conn():
     return sqlite3.connect(SPI_DB_PATH)
 
 
-def query_spi(sql: str, params=(), write: bool = False):
-    """Execute a query against spi_ratings.db. Returns list of row dicts or None on error."""
-    if not os.path.exists(SPI_DB_PATH):
-        return None
+def query_spi(sql: str, params=(), write: bool = False, conn=None):
+    """Execute a query against spi_ratings.db. Returns list of row dicts or None on error.
+    If conn is provided, reuses it (caller owns its lifecycle) instead of opening a new one.
+    """
+    own_conn = None
     try:
-        conn = sqlite3.connect(SPI_DB_PATH)
+        if conn is None:
+            if not os.path.exists(SPI_DB_PATH):
+                return None
+            own_conn = sqlite3.connect(SPI_DB_PATH)
+            conn = own_conn
         conn.row_factory = sqlite3.Row
-        try:
-            cur = conn.execute(sql, params)
-            if write:
-                conn.commit()
-                return []
-            rows = cur.fetchall()
-            return [dict(r) for r in rows]
-        finally:
-            conn.close()
+        cur = conn.execute(sql, params)
+        if write:
+            conn.commit()
+            return []
+        rows = cur.fetchall()
+        return [dict(r) for r in rows]
     except Exception:
         return None
+    finally:
+        if own_conn is not None:
+            own_conn.close()
 
 
 def _ensure_match_predictions() -> None:
-    """Populate match_predictions in spi_ratings.db from stored team_ratings if missing."""
+    """Populate match_predictions in spi_ratings.db from stored team_ratings if missing or stale."""
     if not os.path.exists(SPI_DB_PATH):
         return
     try:
@@ -828,19 +774,31 @@ def _ensure_match_predictions() -> None:
                     mu_home           REAL,
                     mu_away           REAL,
                     most_likely_score TEXT,
+                    generated_at      TEXT,
                     PRIMARY KEY (home_team, away_team)
                 )
             """)
             conn.commit()
             # Migrate: add any columns that are missing from an older schema
             existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(match_predictions)").fetchall()}
-            for col, typedef in [("mu_home", "REAL"), ("mu_away", "REAL"), ("most_likely_score", "TEXT")]:
+            for col, typedef in [("mu_home", "REAL"), ("mu_away", "REAL"), ("most_likely_score", "TEXT"), ("generated_at", "TEXT")]:
                 if col not in existing_cols:
                     conn.execute(f"ALTER TABLE match_predictions ADD COLUMN {col} {typedef}")
             conn.commit()
-            # Only skip if already populated with the extended schema
-            if conn.execute("SELECT COUNT(*) FROM match_predictions WHERE mu_home IS NOT NULL").fetchone()[0] > 0:
-                return
+
+            # Skip repopulation only if predictions are already current relative
+            # to the latest team_ratings fit (avoids serving stale predictions
+            # forever after a SPI refit).
+            try:
+                ratings_updated = conn.execute("SELECT MAX(last_updated) FROM team_ratings").fetchone()[0]
+                preds_generated = conn.execute(
+                    "SELECT MIN(generated_at) FROM match_predictions WHERE mu_home IS NOT NULL"
+                ).fetchone()[0]
+                if ratings_updated and preds_generated and ratings_updated <= preds_generated:
+                    return  # predictions are current
+            except sqlite3.Error:
+                pass  # fall through and repopulate
+
             rows = conn.execute(
                 "SELECT team, attack_rating, defense_rating FROM team_ratings"
             ).fetchall()
@@ -849,6 +807,10 @@ def _ensure_match_predictions() -> None:
                 "SELECT param, value FROM model_params"
             ).fetchall())
             baseline = math.exp(params_map.get("intercept", 0.0))
+            # Dixon-Coles correction — third independent implementation in this codebase.
+            # See dixon_coles_correction() and _precompute_match_cache() in spi_model.py.
+            # rho must match DIXON_COLES_RHO in spi_model.py (-0.13). No shared constant
+            # currently enforces this — update both if rho changes.
             rho = -0.13
             k = list(range(11))
             # Derive unique team lists per group from the fallback schedule
@@ -861,6 +823,7 @@ def _ensure_match_predictions() -> None:
                     if t not in teams_by_group[grp]:
                         teams_by_group[grp].append(t)
             from itertools import combinations as _comb
+            generated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
             inserts = []
             for grp, teams in teams_by_group.items():
                 for home, away in _comb(teams, 2):
@@ -893,9 +856,9 @@ def _ensure_match_predictions() -> None:
                     inserts.append((home, away,
                                     round(a_win, 4), round(draw, 4), round(b_win, 4),
                                     round(mu_a, 4), round(mu_b, 4),
-                                    f"{best_i}-{best_j}"))
+                                    f"{best_i}-{best_j}", generated_at))
             conn.executemany(
-                "INSERT OR REPLACE INTO match_predictions VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO match_predictions VALUES (?,?,?,?,?,?,?,?,?)",
                 inserts,
             )
             conn.commit()
@@ -905,14 +868,14 @@ def _ensure_match_predictions() -> None:
         pass
 
 
-def get_spi_prediction(home: str, away: str):
+def get_spi_prediction(home: str, away: str, conn=None):
     """Return SPI prediction dict or None. Handles flipped table ordering."""
     sql = ("SELECT spi_home_win, spi_draw, spi_away_win, mu_home, mu_away, most_likely_score "
            "FROM match_predictions WHERE home_team=? AND away_team=?")
-    rows = query_spi(sql, (home, away))
+    rows = query_spi(sql, (home, away), conn=conn)
     if rows:
         return rows[0]
-    rows = query_spi(sql, (away, home))
+    rows = query_spi(sql, (away, home), conn=conn)
     if rows:
         r = rows[0]
         score = r.get("most_likely_score") or ""
@@ -930,53 +893,63 @@ def get_spi_prediction(home: str, away: str):
     return None
 
 
-def get_leverage(home: str, away: str):
+def get_leverage(home: str, away: str, conn=None):
     """Return leverage_score for this matchup or None. Handles flipped table ordering."""
     sql = "SELECT leverage_score FROM game_leverage WHERE home_team=? AND away_team=?"
-    rows = query_spi(sql, (home, away))
+    rows = query_spi(sql, (home, away), conn=conn)
     if rows:
         return rows[0].get("leverage_score")
-    rows = query_spi(sql, (away, home))
+    rows = query_spi(sql, (away, home), conn=conn)
     if rows:
         return rows[0].get("leverage_score")
     return None
 
 
-def get_closeness(home: str, away: str) -> float:
-    pred = get_spi_prediction(home, away)
+def _ensure_max_leverage_cached(conn=None) -> None:
+    """Compute max_leverage from game_leverage and persist it to model_params
+    if not already cached. Pure side-effecting setup step — call once before
+    any get_importance() calls, not from within the getter itself."""
+    max_rows = query_spi("SELECT value FROM model_params WHERE param='max_leverage'", conn=conn)
+    if max_rows:
+        return
+    agg = query_spi("SELECT MAX(leverage_score) AS m FROM game_leverage", conn=conn)
+    max_lev = agg[0]["m"] if agg else 0.0
+    if max_lev:
+        query_spi(
+            "INSERT OR REPLACE INTO model_params (param, value) VALUES ('max_leverage', ?)",
+            (max_lev,), write=True, conn=conn,
+        )
+
+
+def get_closeness(home: str, away: str, conn=None) -> float:
+    pred = get_spi_prediction(home, away, conn=conn)
     if not pred:
         return 0.5
     max_prob = max(pred["spi_home_win"], pred["spi_draw"], pred["spi_away_win"])
     return 1.0 - ((max_prob - 1/3) / (2/3))
 
 
-def get_importance(home: str, away: str) -> float:
-    lev = get_leverage(home, away)
+def get_importance(home: str, away: str, conn=None) -> float:
+    """Return normalized leverage (0-1) for this matchup. Assumes max_leverage
+    is already cached in model_params — call _ensure_max_leverage_cached() once
+    beforehand."""
+    lev = get_leverage(home, away, conn=conn)
     if lev is None:
         return 0.0
-    max_rows = query_spi("SELECT value FROM model_params WHERE param='max_leverage'")
-    if max_rows:
-        max_lev = max_rows[0]["value"]
-    else:
-        agg = query_spi("SELECT MAX(leverage_score) AS m FROM game_leverage")
-        max_lev = agg[0]["m"] if agg else 0.0
-        if max_lev:
-            query_spi(
-                "INSERT OR REPLACE INTO model_params (param, value) VALUES ('max_leverage', ?)",
-                (max_lev,), write=True
-            )
+    max_rows = query_spi("SELECT value FROM model_params WHERE param='max_leverage'", conn=conn)
+    max_lev = max_rows[0]["value"] if max_rows else 0.0
     if not max_lev:
         return 0.0
     return min(lev / max_lev, 1.0)
 
 
-def get_quality(home: str, away: str) -> float:
-    h_rows = query_spi("SELECT spi_overall FROM team_ratings WHERE team=?", (home,))
-    a_rows = query_spi("SELECT spi_overall FROM team_ratings WHERE team=?", (away,))
+def get_quality(home: str, away: str, conn=None) -> float:
+    h_rows = query_spi("SELECT spi_overall FROM team_ratings WHERE team=?", (home,), conn=conn)
+    a_rows = query_spi("SELECT spi_overall FROM team_ratings WHERE team=?", (away,), conn=conn)
     home_val = h_rows[0]["spi_overall"] if h_rows else 50.0
     away_val = a_rows[0]["spi_overall"] if a_rows else 50.0
     top_two  = query_spi(
-        "SELECT spi_overall FROM team_ratings ORDER BY spi_overall DESC LIMIT 2"
+        "SELECT spi_overall FROM team_ratings ORDER BY spi_overall DESC LIMIT 2", conn=conn
     )
     max_combined = sum(r["spi_overall"] for r in top_two) if top_two else 200.0
     return min((home_val + away_val) / max_combined, 1.0)
@@ -998,10 +971,10 @@ def abbrev(name: str) -> str:
     return _ABBREV.get(name, name[:3].upper())
 
 
-def watchability_score(home: str, away: str) -> dict:
-    closeness  = get_closeness(home, away)
-    importance = get_importance(home, away)
-    quality    = get_quality(home, away)
+def watchability_score(home: str, away: str, conn=None) -> dict:
+    closeness  = get_closeness(home, away, conn=conn)
+    importance = get_importance(home, away, conn=conn)
+    quality    = get_quality(home, away, conn=conn)
     return {
         "score":      round(((closeness + importance + quality) / 3) * 100),
         "closeness":  round(closeness  * 100),
@@ -1024,7 +997,8 @@ def build_tournament_tab() -> str:
             ORDER BY t.p_champion DESC
         """).fetchall()
     except Exception as e:
-        return f"<p class='pending'>Data unavailable.</p>"
+        print(f"[WARNING] build_tournament_tab() failed: {e!r}")
+        return "<p class='pending'>Tournament data unavailable.</p>"
     finally:
         conn.close()
 
@@ -1100,15 +1074,15 @@ def build_tournament_tab() -> str:
         header + "".join(body_rows) + '</tbody></table>'
         '</div>'
         '<p class="tourn-note">Probabilities from 10,000-run Monte Carlo simulation '
-        'using SPI Poisson model. Updated daily.</p>'
+        'using SPI Poisson model. Updated manually throughout the tournament.</p>'
         '</div>' + js
     )
 
 
-def build_groups_data(schedule, groups, odds, completed_results):
+def build_groups_data(schedule, groups, completed_results):
     """
-    Build simulation input data from schedule, groups, odds, and completed results.
-    Returns (groups_data, missing_odds_matches, current_actual_points).
+    Build simulation input data from schedule, groups, and completed results.
+    Returns (groups_data, current_actual_points).
     """
     current_actual_points = {t: 0 for grp_teams in groups.values() for t in grp_teams}
 
@@ -1124,7 +1098,6 @@ def build_groups_data(schedule, groups, odds, completed_results):
             current_actual_points[away] = current_actual_points.get(away, 0) + 1
 
     groups_data = {}
-    missing_odds_matches = []
 
     for grp, teams in groups.items():
         fixed_points = {t: current_actual_points.get(t, 0) for t in teams}
@@ -1175,7 +1148,7 @@ def build_groups_data(schedule, groups, odds, completed_results):
             "fixed_h2h":   fixed_h2h,
         }
 
-    return groups_data, missing_odds_matches, current_actual_points
+    return groups_data, current_actual_points
 
 
 def _poisson_sample(lam: float) -> int:
@@ -1259,6 +1232,10 @@ def _rank_group_stage_tied(teams: list, h2h: dict, ogd: dict, ogf: dict) -> list
     return _rank_h2h(list(teams), 0)
 
 
+# NOTE: This is an independent group-stage Monte Carlo implementation used for
+# the live group standings display. spi_model.py contains a parallel full-tournament
+# simulator (_sim_group, run_full_tournament_simulation). If you fix a tiebreak bug
+# here, check spi_model.py's _rank_group_stage_tied() for the same issue, and vice versa.
 def run_all_simulations(groups_data, n=10000):
     """
     Run Monte Carlo simulations for all 12 groups simultaneously.
@@ -1339,8 +1316,8 @@ def run_all_simulations(groups_data, n=10000):
 # HTML builder
 # ---------------------------------------------------------------------------
 
-def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = None,
-               sim_results: dict = None, current_actual_points: dict = None) -> str:
+def build_html(fetched_at, schedule: list = None, results: dict = None,
+               sim_results: dict = None) -> str:
     if schedule is None:
         schedule = _SCHEDULE_FALLBACK
     if results is None:
@@ -1348,45 +1325,37 @@ def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = No
 
     # ---- pre-compute watchability for all 72 games (SPI 3-component model) ----
     _ensure_match_predictions()
+    spi_conn = get_spi_conn()  # shared across this build to avoid one connection per query
+    _ensure_max_leverage_cached(spi_conn)
     watchability: dict = {}
     for g in schedule:
-        watchability[(g["home"], g["away"])] = watchability_score(g["home"], g["away"])
+        watchability[(g["home"], g["away"])] = watchability_score(g["home"], g["away"], conn=spi_conn)
 
     # ---- schedule ----
     date_games: dict = {}
     for g in schedule:
         date_games.setdefault(g["date"], []).append(g)
 
-    games_with_odds = sum(1 for g in schedule if (g["home"], g["away"]) in odds)
-
     # ---- game of the day (most competitive match today in ET) ----
     gotd_matchup = "No games today"
     gotd_time = ""
     try:
-        from zoneinfo import ZoneInfo
         today_et = datetime.datetime.now(ZoneInfo("America/New_York"))
         today_fmt = today_et.strftime("%a, %b ") + str(today_et.day)
-        today_with_odds = [
-            (g, odds[(g["home"], g["away"])])
-            for g in schedule
-            if g["date"] == today_fmt and (g["home"], g["away"]) in odds
-        ]
-        if today_with_odds:
-            best_g, best_o = max(
-                today_with_odds,
-                key=lambda x: (watchability.get((x[0]["home"], x[0]["away"])) or {}).get("score", 0),
+        todays_games = [g for g in schedule if g["date"] == today_fmt]
+        if todays_games:
+            best_g = max(
+                todays_games,
+                key=lambda g: (watchability.get((g["home"], g["away"])) or {}).get("score", 0),
             )
             gotd_matchup = f'{esc(best_g["home"])} vs {esc(best_g["away"])}'
             gotd_time = best_g["time"]
-        elif any(g["date"] == today_fmt for g in schedule):
-            gotd_matchup = "Odds pending"
     except Exception:
         pass
 
     if fetched_at:
         try:
-            from zoneinfo import ZoneInfo
-            dt = datetime.datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+            dt = _parse_iso(fetched_at)
             et = dt.astimezone(ZoneInfo("America/New_York"))
             tz_label = "EDT" if et.dst() else "EST"
             time_str = et.strftime("%I:%M %p").lstrip("0")
@@ -1408,10 +1377,6 @@ def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = No
         )
         for g in games:
             game_key = (g["home"], g["away"])
-            o = odds.get(game_key)
-            hp = o["home_prob"] if o else None
-            dp = o["draw_prob"] if o else None
-            ap = o["away_prob"] if o else None
             w_data = watchability.get(game_key)
             w = w_data["score"] if w_data else None
             data_w = str(w) if w is not None else ""
@@ -1425,7 +1390,7 @@ def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = No
                 hs = r["home_score"]
                 aws = r["away_score"]
 
-                comp_pred = get_spi_prediction(g["home"], g["away"])
+                comp_pred = get_spi_prediction(g["home"], g["away"], conn=spi_conn)
                 if hs > aws:
                     home_cls, away_cls = "winner", "loser"
                     winning_prob = comp_pred["spi_home_win"] if comp_pred else None
@@ -1478,7 +1443,7 @@ def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = No
                 )
             else:
                 # ── upcoming / no result yet ─────────────────────────────────
-                pred = get_spi_prediction(g["home"], g["away"])
+                pred = get_spi_prediction(g["home"], g["away"], conn=spi_conn)
                 if pred:
                     hw_pct = round(pred["spi_home_win"] * 100)
                     dr_pct = round(pred["spi_draw"] * 100)
@@ -1662,9 +1627,10 @@ def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = No
         "</div>",
         "</div>",
         "</div>",
-        "<footer><p>Odds from "
+        "<footer><p>Predictions from SPI Poisson model "
+        "&bull; Scores via "
         '<a href="https://the-odds-api.com" target="_blank" rel="noopener">The Odds API</a>'
-        " &bull; Vig removed &bull; Win probabilities averaged across US bookmakers</p></footer>",
+        " &bull; Built with Claude</p></footer>",
         "<script>",
         "window.showTab=function(id){",
         "  document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('tab-visible');});",
@@ -1720,6 +1686,8 @@ def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = No
         "</script>",
         "</body></html>",
     ]
+    if spi_conn:
+        spi_conn.close()
     return "\n".join(parts)
 
 
@@ -1728,32 +1696,24 @@ def build_html(odds: dict, fetched_at, schedule: list = None, results: dict = No
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    odds, fetched_at = get_odds(DB_PATH)
+    fetched_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     results = get_results(DB_PATH)
-    completed_results = get_completed_results(DB_PATH)
     schedule = get_schedule(DB_PATH)
-    if not odds:
-        print("WARNING: No match odds in DB — generating skeleton dashboard.")
 
     t0 = time.time()
-    groups_data, missing_odds, current_actual_points = build_groups_data(
-        schedule, GROUPS, odds, completed_results
+    groups_data, _ = build_groups_data(
+        schedule, GROUPS, results
     )
     sim_results = run_all_simulations(groups_data, n=10000)
     elapsed = time.time() - t0
-    print(f"Monte Carlo simulation complete ({elapsed:.1f}s, {len(missing_odds)} matches missing odds)")
-    if missing_odds:
-        for m in missing_odds[:5]:
-            print(f"  Using 33/33/33 for: {m}")
-        if len(missing_odds) > 5:
-            print(f"  ... and {len(missing_odds) - 5} more")
+    print(f"Monte Carlo simulation complete ({elapsed:.1f}s)")
 
-    html = build_html(odds, fetched_at, schedule, results, sim_results, current_actual_points)
+    html = build_html(fetched_at, schedule, results, sim_results)
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         f.write(html)
 
     size_kb = os.path.getsize(OUT_PATH) / 1024
-    print(f"Wrote {OUT_PATH} ({size_kb:.1f} KB, {len(odds)} matches with odds)")
+    print(f"Wrote {OUT_PATH} ({size_kb:.1f} KB)")
 
 
 if __name__ == "__main__":

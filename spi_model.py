@@ -18,6 +18,7 @@ Credentials: ~/.kaggle/kaggle.json  (https://www.kaggle.com/settings > API)
 import math
 import os
 import sqlite3
+import time
 from datetime import date, datetime, timezone
 
 import numpy as np
@@ -26,13 +27,27 @@ import statsmodels.api as sm
 import statsmodels.formula.api as smf
 from scipy.stats import poisson
 
-from fetch_odds import NAME_MAP as _BASE_NAME_MAP
+from fetch_results import NAME_MAP as _BASE_NAME_MAP
 
 KAGGLE_DATASET = "martj42/international-football-results-from-1872-to-2017"
 DB_PATH = "spi_ratings.db"
 ODDS_DB_PATH = "odds.db"
 START_DATE = date(2010, 1, 1)
 WC2026_START = date(2026, 6, 11)
+
+DIXON_COLES_RHO = -0.13  # Empirically fitted correction for low-score clustering
+                          # in soccer. Original value from Dixon & Coles (1997),
+                          # validated against this dataset in backtest.py Part 3.
+                          # Best-fit for this data: -0.08 (LL) / -0.03 (SSD),
+                          # difference negligible (<0.001 LL). -0.13 retained.
+
+RECENCY_DECAY_YEARS = 5.0     # Half-life for match recency weighting.
+                               # Tested vs /3, /7, /10 in backtest.py — differences
+                               # negligible (<0.006 log loss). /5 retained.
+
+HOME_ADVANTAGE_FALLBACK = 0.249  # Log-space home advantage used if model_params
+                                  # table is missing. Fitted value from GLM (+28.2%
+                                  # expected goals at home). See spi_model.py Phase 1.
 
 WC2026_TEAMS = {
     "Mexico", "South Africa", "South Korea", "Czechia",
@@ -64,6 +79,9 @@ NAME_MAP: dict[str, str] = {
 
 
 def normalize(name: str) -> str:
+    """Map a raw team name from an external source to the canonical
+    WC2026 team name used throughout this project. Falls back to the
+    input name unchanged if no mapping exists."""
     return NAME_MAP.get(name.strip(), name.strip())
 
 
@@ -88,6 +106,9 @@ def tournament_weight(tournament: str) -> float:
 
 
 def load_kaggle(filename: str) -> pd.DataFrame:
+    """Download `filename` from the KAGGLE_DATASET via kagglehub and return it
+    as a raw, unfiltered DataFrame. Date filtering and name normalization are
+    done by the caller (see seed_historical())."""
     import kagglehub
     from kagglehub import KaggleDatasetAdapter
     return kagglehub.dataset_load(
@@ -187,6 +208,41 @@ def load_wc2026_results() -> pd.DataFrame:
     return df
 
 
+def _load_completed_wc2026_matches(conn=None) -> list[dict]:
+    """Load completed WC2026 match results from odds.db.
+    Returns list of dicts with keys: home, away, home_score, away_score.
+    Names are normalized via normalize(). Returns empty list if none found.
+
+    Note: match_results only ever contains completed matches (fetch_results.py
+    filters to completed=True before inserting), so there is no completed-flag
+    column to filter on here.
+    """
+    close_conn = conn is None
+    if conn is None:
+        if not os.path.exists(ODDS_DB_PATH):
+            return []
+        conn = sqlite3.connect(ODDS_DB_PATH)
+    try:
+        rows = conn.execute("""
+            SELECT home_team, away_team, home_score, away_score
+            FROM match_results
+        """).fetchall()
+        return [
+            {
+                "home": normalize(r[0]),
+                "away": normalize(r[1]),
+                "home_score": int(r[2]),
+                "away_score": int(r[3]),
+            }
+            for r in rows
+        ]
+    except sqlite3.Error:
+        return []
+    finally:
+        if close_conn:
+            conn.close()
+
+
 def main() -> None:
     # Pre-tournament ratings are frozen in historical_matches (seeded once via --init).
     # WC2026 results are appended fresh each run so ratings update permanently as games finish.
@@ -222,7 +278,7 @@ def main() -> None:
             continue
 
         years_ago = (reference_date - row.date).days / 365.25
-        recency = math.exp(-years_ago / 5.0)
+        recency = math.exp(-years_ago / RECENCY_DECAY_YEARS)
         imp = tournament_weight(str(row.tournament))
         w = imp * recency
         neutral = str(getattr(row, "neutral", "False")).strip().lower() == "true"
@@ -279,6 +335,10 @@ def main() -> None:
     home_adv_coef = float(params.get("home_adv", 0.0))
 
     all_teams = set(model_df["attack"].unique())
+    # ref_team is an arbitrary identifiability constraint for the GLM
+    # (one team's attack coefficient is fixed to zero so the intercept
+    # is well-defined). The choice of which team doesn't affect final
+    # SPI ratings — only relative differences between coefficients matter.
     ref_team = min(all_teams)  # statsmodels reference (alphabetically first)
 
     attack_coef: dict[str, float] = {}
@@ -427,10 +487,12 @@ def _load_ratings(db_path: str = DB_PATH) -> tuple[dict, float, float]:
         try:
             prows = conn.execute("SELECT param, value FROM model_params").fetchall()
             p = {k: v for k, v in prows}
-            home_adv = p.get("home_advantage_coef", 0.249)
+            home_adv = p.get("home_advantage_coef", HOME_ADVANTAGE_FALLBACK)
             intercept = p.get("intercept", 0.0)
-        except sqlite3.OperationalError:
-            home_adv = 0.249
+        except sqlite3.OperationalError as e:
+            if "no such table" not in str(e) and "no such column" not in str(e):
+                raise
+            home_adv = HOME_ADVANTAGE_FALLBACK
             intercept = 0.0
     finally:
         conn.close()
@@ -449,10 +511,10 @@ def score_matrix(mu_a: float, mu_b: float, max_goals: int = 10) -> np.ndarray:
 
 
 def dixon_coles_correction(
-    matrix: np.ndarray, mu_a: float, mu_b: float, rho: float = -0.13
+    matrix: np.ndarray, mu_a: float, mu_b: float, rho: float = DIXON_COLES_RHO
 ) -> np.ndarray:
     """Apply Dixon-Coles rho correction to the four low-scoring cells.
-    rho = -0.13 is the standard empirically fitted value for soccer.
+    See DIXON_COLES_RHO for the value's provenance.
     Renormalises the matrix after adjustment.
     """
     mat = matrix.copy()
@@ -663,6 +725,13 @@ WC2026_GROUPS = {
     "K": ["Portugal",      "DR Congo",          "Uzbekistan",   "Colombia"],
     "L": ["England",       "Croatia",           "Ghana",        "Panama"],
 }
+
+_groups_teams = {t for teams in WC2026_GROUPS.values() for t in teams}
+assert _groups_teams == WC2026_TEAMS, (
+    f"WC2026_TEAMS and WC2026_GROUPS are out of sync.\n"
+    f"In GROUPS not in TEAMS: {_groups_teams - WC2026_TEAMS}\n"
+    f"In TEAMS not in GROUPS: {WC2026_TEAMS - _groups_teams}"
+)
 
 # Official FIFA 2026 R32 bracket structure (matches M73–M88)
 # Source: FIFA 2026 tournament regulations + wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage
@@ -1192,7 +1261,7 @@ def _precompute_match_cache(db_path: str = DB_PATH) -> dict:
     baseline = math.exp(intercept)
     teams = sorted(WC2026_TEAMS & set(ratings.keys()))
     k = np.arange(11)
-    rho = -0.13
+    rho = DIXON_COLES_RHO
     cache: dict = {}
     for ta in teams:
         ar_a, dr_a = ratings[ta]
@@ -1205,6 +1274,9 @@ def _precompute_match_cache(db_path: str = DB_PATH) -> dict:
             pa = poisson.pmf(k, mu_a)
             pb = poisson.pmf(k, mu_b)
             mat = np.outer(pa, pb)
+            # Inlined Dixon-Coles correction for performance (avoids function call overhead
+            # in the hot simulation loop). Must be kept in sync with dixon_coles_correction()
+            # above if DIXON_COLES_RHO or the correction formula ever changes.
             mat[0, 0] *= (1 - mu_a * mu_b * rho)
             mat[1, 0] *= (1 + mu_b * rho)
             mat[0, 1] *= (1 + mu_a * rho)
@@ -1310,62 +1382,7 @@ def _sim_ko(ta: str, tb: str, cache: dict) -> str:
     return ta if np.random.random() < a_win + draw * 0.5 else tb
 
 
-def _build_r32(w: dict, r: dict, third_teams: dict) -> list:
-    """Build the 16 R32 matchup pairs from group results and Annex C lookup.
-
-    Parameters
-    ----------
-    w            : {group: winner_team}
-    r            : {group: runner_up_team}
-    third_teams  : {group: third_place_team}  (all 12 groups)
-
-    Returns list of 16 (team_a, team_b) tuples for R32.
-    """
-    # Determine which 8 groups have a third-place team advancing
-    # (caller already selected best-8 groups; third_teams only contains those 8)
-    adv_groups = frozenset(third_teams.keys())
-
-    annex_row = ANNEX_C.get(adv_groups)
-    if annex_row is None:
-        # Fallback — should never happen if ANNEX_C is complete
-        print(f"  WARNING: Annex C lookup miss for {sorted(adv_groups)} — using points ranking")
-        slot_keys = ['M74', 'M77', 'M79', 'M80', 'M81', 'M82', 'M85', 'M87']
-        ranked = sorted(third_teams.keys())
-        annex_row = {slot_keys[i]: ranked[i] for i in range(8)}
-
-    def t3(grp: str) -> str:
-        return third_teams[grp]
-
-    # Build all 16 R32 matches
-    m73 = (r["A"], r["B"])
-    m74 = (w["E"], t3(annex_row["M74"]))
-    m75 = (w["F"], r["C"])
-    m76 = (w["C"], r["F"])
-    m77 = (w["I"], t3(annex_row["M77"]))
-    m78 = (r["E"], r["I"])
-    m79 = (w["A"], t3(annex_row["M79"]))
-    m80 = (w["L"], t3(annex_row["M80"]))
-    m81 = (w["D"], t3(annex_row["M81"]))
-    m82 = (w["G"], t3(annex_row["M82"]))
-    m83 = (r["K"], r["L"])
-    m84 = (w["H"], r["J"])
-    m85 = (w["B"], t3(annex_row["M85"]))
-    m86 = (w["J"], r["H"])
-    m87 = (w["K"], t3(annex_row["M87"]))
-    m88 = (r["D"], r["G"])
-
-    # R16 bracket (winner of first match vs winner of second)
-    r16 = [
-        (m73, m75),   # M89: W73 vs W75
-        (m74, m77),   # M90: W74 vs W77
-        (m76, m78),   # M91: W76 vs W78
-        (m79, m80),   # M92: W79 vs W80
-        (m83, m84),   # M93: W83 vs W84
-        (m81, m82),   # M94: W81 vs W82
-        (m86, m88),   # M95: W86 vs W88
-        (m85, m87),   # M96: W85 vs W87
-    ]
-    return r16   # 8 pairs of R32 matchups; simulate each pair → 8 R16 teams
+# R32 bracket is built inline in run_full_tournament_simulation().
 
 
 def run_full_tournament_simulation(n: int = 10000, db_path: str = DB_PATH,
@@ -1384,7 +1401,6 @@ def run_full_tournament_simulation(n: int = 10000, db_path: str = DB_PATH,
       p_final         = P(advanced through SF, in Final)
       p_champion      = P(won the Final)
     """
-    import time
     t0 = time.time()
 
     if _verbose:
@@ -1406,33 +1422,19 @@ def run_full_tournament_simulation(n: int = 10000, db_path: str = DB_PATH,
             for grp, teams in WC2026_GROUPS.items()
             for ta, tb in _combinations(teams, 2)
         }
-        if os.path.exists(ODDS_DB_PATH):
-            _conn = sqlite3.connect(ODDS_DB_PATH)
-            try:
-                _tbl = _conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='match_results'"
-                ).fetchone()
-                if _tbl:
-                    _cols = [r[1] for r in _conn.execute("PRAGMA table_info(match_results)").fetchall()]
-                    _where = "WHERE completed = 1" if "completed" in _cols else ""
-                    _rows = _conn.execute(
-                        f"SELECT home_team, away_team, home_score, away_score "
-                        f"FROM match_results {_where}"
-                    ).fetchall()
-                    _fixed: dict = {}
-                    for _home, _away, _hs, _aws in _rows:
-                        _hn = normalize(_home)
-                        _an = normalize(_away)
-                        _canonical = _combo_order.get(frozenset({_hn, _an}))
-                        if _canonical:
-                            _ta, _tb = _canonical
-                            _fixed[_canonical] = (int(_hs), int(_aws)) if _ta == _hn else (int(_aws), int(_hs))
-                    if _fixed:
-                        fixed_result = _fixed
-                        if _verbose:
-                            print(f"  {len(_fixed)} completed WC2026 games fixed at actual scorelines.")
-            finally:
-                _conn.close()
+        _fixed: dict = {}
+        for _m in _load_completed_wc2026_matches():
+            _canonical = _combo_order.get(frozenset({_m["home"], _m["away"]}))
+            if _canonical:
+                _ta, _tb = _canonical
+                _fixed[_canonical] = (
+                    (_m["home_score"], _m["away_score"]) if _ta == _m["home"]
+                    else (_m["away_score"], _m["home_score"])
+                )
+        if _fixed:
+            fixed_result = _fixed
+            if _verbose:
+                print(f"  {len(_fixed)} completed WC2026 games fixed at actual scorelines.")
 
     grp_matchups = {
         grp: list(_combinations(teams, 2))
@@ -1441,7 +1443,6 @@ def run_full_tournament_simulation(n: int = 10000, db_path: str = DB_PATH,
 
     # counts[team] = [group_adv, r32_win, r16_win, qf_win, sf_win, champion]
     counts: dict = {t: [0, 0, 0, 0, 0, 0] for t in WC2026_TEAMS}
-    annex_miss = 0
 
     if _verbose:
         print(f"  Running {n:,} simulations...")
@@ -1472,12 +1473,13 @@ def run_full_tournament_simulation(n: int = 10000, db_path: str = DB_PATH,
 
         # ── Build R32 bracket via Annex C ─────────────────────────────────────
         adv_groups = frozenset(third_teams.keys())
-        annex_row = ANNEX_C.get(adv_groups)
-        if annex_row is None:
-            annex_miss += 1
-            ranked_grps = sorted(third_teams.keys())
-            slot_keys = ['M74', 'M77', 'M79', 'M80', 'M81', 'M82', 'M85', 'M87']
-            annex_row = {slot_keys[i]: ranked_grps[i] for i in range(8)}
+        bracket_map = ANNEX_C.get(adv_groups)
+        if bracket_map is None:
+            raise KeyError(
+                f"ANNEX_C missing combination: {sorted(adv_groups)}. "
+                f"Add this frozenset to the lookup table."
+            )
+        annex_row = bracket_map
 
         def t3(grp: str) -> str:
             return third_teams[grp]
@@ -1539,8 +1541,6 @@ def run_full_tournament_simulation(n: int = 10000, db_path: str = DB_PATH,
 
     if _verbose:
         print(f"  Simulations complete in {time.time() - t_sim_start:.1f}s")
-        if annex_miss:
-            print(f"  WARNING: {annex_miss} Annex C lookup misses (fallback used)")
 
     probs = {
         t: {
@@ -1591,35 +1591,18 @@ def run_full_tournament_simulation(n: int = 10000, db_path: str = DB_PATH,
 
 
 def _print_tournament_results(probs: dict) -> None:
-    """Print simulation results with bookmaker championship odds comparison."""
-    market: dict = {}
-    if os.path.exists(ODDS_DB_PATH):
-        conn = sqlite3.connect(ODDS_DB_PATH)
-        try:
-            rows = conn.execute("""
-                SELECT team, implied_prob FROM odds_snapshots o1
-                WHERE fetched_at = (
-                    SELECT MAX(fetched_at) FROM odds_snapshots o2 WHERE o2.team = o1.team
-                )
-            """).fetchall()
-            market = {t: p for t, p in rows}
-        finally:
-            conn.close()
-
+    """Print simulation results."""
     by_champ = sorted(probs.items(), key=lambda x: -x[1]["p_champion"])
     W = 100
 
     print(f"\n{'='*W}")
-    print("  Phase 3 — Tournament Simulation Results  (SPI model vs market)")
+    print("  Phase 3 — Tournament Simulation Results")
     print(f"{'='*W}")
 
     print(f"\n  Top 15 P(champion):")
-    print(f"  {'Team':<22} {'Advance':>8} {'R32▸R16':>8} {'R16▸QF':>7} {'QF▸SF':>6} {'SF▸F':>6} {'Champ':>6} {'Book':>7} {'Δ':>8}")
+    print(f"  {'Team':<22} {'Advance':>8} {'R32▸R16':>8} {'R16▸QF':>7} {'QF▸SF':>6} {'SF▸F':>6} {'Champ':>6}")
     print(f"  {'-'*W}")
     for team, p in by_champ[:15]:
-        bk = market.get(team)
-        bk_s = f"{bk*100:.1f}%" if bk else "  —"
-        d_s  = f"{(p['p_champion']-bk)*100:+.1f}pp" if bk else "  —"
         print(
             f"  {team:<22}"
             f"  {p['p_group_advance']*100:6.1f}%"
@@ -1628,21 +1611,16 @@ def _print_tournament_results(probs: dict) -> None:
             f"  {p['p_sf']*100:5.1f}%"
             f"  {p['p_final']*100:5.1f}%"
             f"  {p['p_champion']*100:5.1f}%"
-            f"  {bk_s:>6}"
-            f"  {d_s:>8}"
         )
 
     print(f"\n  Bottom 10 P(champion):")
-    print(f"  {'Team':<22} {'Advance':>8} {'Champ':>7} {'Book':>7}")
+    print(f"  {'Team':<22} {'Advance':>8} {'Champ':>7}")
     print(f"  {'-'*52}")
     for team, p in by_champ[-10:]:
-        bk = market.get(team)
-        bk_s = f"{bk*100:.2f}%" if bk else "  —"
         print(
             f"  {team:<22}"
             f"  {p['p_group_advance']*100:6.1f}%"
             f"  {p['p_champion']*100:5.2f}%"
-            f"  {bk_s:>8}"
         )
 
     by_adv = sorted(probs.items(), key=lambda x: -x[1]["p_group_advance"])
@@ -1666,7 +1644,6 @@ def compute_all_leverage(n_baseline: int = 5000, n_conditional: int = 5000, db_p
     teams, weighted by the probability of each outcome.  Writes results to the
     game_leverage table in spi_ratings.db.
     """
-    import time
     t0 = time.time()
     W = 74
 
@@ -1683,32 +1660,15 @@ def compute_all_leverage(n_baseline: int = 5000, n_conditional: int = 5000, db_p
 
     # Load completed WC2026 results from odds.db — fix at actual scorelines
     completed_fixed: dict = {}
-    if os.path.exists(ODDS_DB_PATH):
-        conn = sqlite3.connect(ODDS_DB_PATH)
-        try:
-            tbl = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='match_results'"
-            ).fetchone()
-            if tbl:
-                cols = [r[1] for r in conn.execute("PRAGMA table_info(match_results)").fetchall()]
-                where = "WHERE completed = 1" if "completed" in cols else ""
-                rows = conn.execute(
-                    f"SELECT home_team, away_team, home_score, away_score "
-                    f"FROM match_results {where}"
-                ).fetchall()
-                for home, away, hs, aws in rows:
-                    home_n = normalize(home)
-                    away_n = normalize(away)
-                    canonical = combo_order.get(frozenset({home_n, away_n}))
-                    if canonical:
-                        ta, tb = canonical
-                        # Store scores in combination order (ta_score, tb_score)
-                        if ta == home_n:
-                            completed_fixed[canonical] = (int(hs), int(aws))
-                        else:
-                            completed_fixed[canonical] = (int(aws), int(hs))
-        finally:
-            conn.close()
+    for m in _load_completed_wc2026_matches():
+        canonical = combo_order.get(frozenset({m["home"], m["away"]}))
+        if canonical:
+            ta, tb = canonical
+            # Store scores in combination order (ta_score, tb_score)
+            completed_fixed[canonical] = (
+                (m["home_score"], m["away_score"]) if ta == m["home"]
+                else (m["away_score"], m["home_score"])
+            )
 
     completed_set: set = set(completed_fixed.keys())
     print(f"  {len(completed_fixed)} completed WC2026 games fixed at actual scorelines.")

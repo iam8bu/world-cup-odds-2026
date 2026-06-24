@@ -1,4 +1,4 @@
-name: Update World Cup Odds Dashboard
+name: Update World Cup Dashboard
 
 on:
   workflow_dispatch:  # manual trigger only
@@ -6,12 +6,10 @@ on:
 permissions:
   contents: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repo
@@ -21,27 +19,29 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: 'pip'
 
       - name: Install dependencies
         run: pip install requests scipy statsmodels pandas numpy
 
-      - name: Fetch latest odds
+      - name: Fetch latest results
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-        run: python fetch_odds.py
+        run: python fetch_results.py
 
       - name: Update SPI ratings and tournament simulation
         run: |
           python spi_model.py
           python spi_model.py --simulate
           python spi_model.py --leverage
-        env:
-          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
 
       - name: Commit and push changes
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Stash the freshly-fetched DB files outside git so `git checkout` can
+          # discard local modifications and `pull --rebase` has a clean tree to
+          # rebase onto, then restore the fresh data on top before committing.
           cp odds.db /tmp/fresh_odds.db
           cp spi_ratings.db /tmp/fresh_spi.db
           git checkout -- odds.db
@@ -51,5 +51,5 @@ jobs:
           cp /tmp/fresh_spi.db spi_ratings.db
           python build_dashboard.py
           git add index.html odds.db spi_ratings.db
-          git diff --cached --quiet || git commit -m "chore: update odds $(date -u '+%Y-%m-%d')"
+          git diff --cached --quiet || git commit -m "chore: update scores and predictions $(date -u '+%Y-%m-%d')"
           git push

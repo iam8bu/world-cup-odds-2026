@@ -18,10 +18,10 @@ All 72 group-stage matches ranked by how worth watching they are. Uses a custom 
 | File | Role |
 |---|---|
 | `spi_model.py` | Core SPI rating model — Poisson GLM with Dixon-Coles correction, tournament simulation, leverage calculation |
-| `fetch_odds.py` | Pulls live odds from a sportsbook API, normalizes team names across data sources |
+| `fetch_results.py` | Pulls completed match results from a sportsbook API (used to refit the model as results come in), normalizes team names across data sources |
 | `build_dashboard.py` | Computes watchability scores and renders the static `index.html` |
-| `.github/workflows/daily.yml` | Scheduled job: fetch odds → refit ratings → re-simulate → rebuild dashboard → commit |
-| `odds.db`, `spi_ratings.db` | SQLite stores for fetched odds and model output |
+| `.github/workflows/daily.yml` | Manually-triggered job: fetch results → refit ratings → re-simulate → rebuild dashboard → commit |
+| `odds.db`, `spi_ratings.db` | SQLite stores for fetched results and model output |
 
 Historical match data comes from the [Kaggle international football results dataset](https://www.kaggle.com/datasets/martj42/international-football-results-from-1872-to-2017).
 
@@ -32,6 +32,6 @@ pip install requests scipy statsmodels pandas numpy
 python spi_model.py              # fit ratings
 python spi_model.py --simulate   # run tournament simulation
 python spi_model.py --leverage   # compute match leverage
-python fetch_odds.py             # pull live odds (requires ODDS_API_KEY)
+python fetch_results.py             # pull completed match results (requires ODDS_API_KEY)
 python build_dashboard.py        # render index.html
 ```
