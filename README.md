@@ -2,7 +2,7 @@
 
 **[Live dashboard →](https://iam8bu.github.io/world-cup-watchability-dashboard-2026/)**
 
-All 72 group-stage matches ranked by how worth watching they are — not just by kickoff time. Combines a custom Soccer Power Index (SPI) ratings model with live betting odds to score every match on competitiveness, stakes, and team quality.
+All 72 group-stage matches ranked by how worth watching they are. Uses a custom Soccer Power Index (SPI) ratings model (based on past FiveThirtyEight models) to score every match on competitiveness, stakes, and team quality.
 
 ## What it does
 
@@ -12,8 +12,6 @@ All 72 group-stage matches ranked by how worth watching they are — not just by
   - **Closeness** — how far the model's win/draw/loss split is from a coin-flip
   - **Importance** — how much the match result moves a team's odds of advancing (leverage)
   - **Quality** — combined SPI rating of both teams
-- **Cross-checks against the betting market** by pulling live odds and comparing implied probabilities to the model's.
-- **Rebuilds the static dashboard** (`index.html`) and pushes it automatically once a day during the tournament via GitHub Actions.
 
 ## How it's built
 
